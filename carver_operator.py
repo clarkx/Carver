@@ -1,11 +1,11 @@
 import bpy
 import sys
-
 from bpy.props import (
 	BoolProperty,
 	IntProperty,
 	PointerProperty,
 	StringProperty,
+	EnumProperty,
 	)
 from mathutils import (
 	Vector,
@@ -43,6 +43,9 @@ from .carver_utils import (
 	)
 
 from .carver_draw import draw_callback_px
+class Bunch:
+	def __init__(self, **kwds):
+		self.__dict__.update(kwds)
 
 # Modal Operator
 class CARVER_OT_operator(bpy.types.Operator):
@@ -53,10 +56,18 @@ class CARVER_OT_operator(bpy.types.Operator):
 
 	def __init__(self):
 		context = bpy.context
-		# Cut Type
+		# Carve mode: Cut, Object, Profile
+		self.CutMode = False
+		self.ObjectMode = False
+		self.ProfileMode = False
+
+		# Cut type (Rectangle, Circle, Line)
 		self.rectangle = 0
 		self.line = 1
 		self.circle = 2
+
+		# Selected type of cut
+		self.CutType = 0
 
 		# Boolean operation
 		self.difference = 0
@@ -64,28 +75,22 @@ class CARVER_OT_operator(bpy.types.Operator):
 
 		self.CurrentSelection = context.selected_objects.copy()
 		self.CurrentActive = context.active_object
-		self.SavSel = context.selected_objects.copy()
-		self.Sav_ac = None
+		self.all_sel_obj_list = context.selected_objects.copy()
+		self.save_active_obj = None
 
 		args = (self, context)
-
 		self._handle = bpy.types.SpaceView3D.draw_handler_add(draw_callback_px, args, 'WINDOW', 'POST_PIXEL')
 
 		self.mouse_path = [(0, 0), (0, 0)]
 
+		# Keyboard event
 		self.shift = False
 		self.ctrl = False
 		self.alt = False
 
-		self.DontApply = context.scene.mesh_carver.DontApply
+		self.dont_apply_boolean = context.scene.mesh_carver.DontApply
 		self.Auto_BevelUpdate = True
 
-		# Cut type (Rectangle, Circle, Line)
-		self.CutMode = False
-		self.ObjectMode = False
-		self.ProfileMode = False
-
-		self.CutType = 0
 		self.BoolOps = self.difference
 
 		# Circle variables
@@ -100,6 +105,7 @@ class CARVER_OT_operator(bpy.types.Operator):
 
 		# Line Increment
 		self.Increment = 15
+
 		# Close polygonal shape
 		self.Closed = False
 
@@ -134,19 +140,22 @@ class CARVER_OT_operator(bpy.types.Operator):
 
 		self.ObjectScale = False
 
+		#Init create circle primitive
 		self.CircleListRaw = []
 		self.CLR_C = []
-		self.CurLoc = Vector((0.0, 0.0, 0.0))
-		self.SavCurLoc = Vector((0.0, 0.0, 0.0))
 		self.CRadius = 1.0
 		CreatePrimitive(self, 10.0, 1.0)
-		self.VertsList = []
-		self.FacesList = []
 
-		self.am = -1, -1
+		# Cursor location
+		self.CurLoc = Vector((0.0, 0.0, 0.0))
+		self.SavCurLoc = Vector((0.0, 0.0, 0.0))
+
+		# Mouse region
+		self.mouse_region = -1, -1
 		self.SavMousePos = None
 		self.xSavMouse = 0
 
+		# Scale, rotate object
 		self.ascale = 0
 		self.aRotZ = 0
 		self.nRotZ = 0
@@ -161,14 +170,16 @@ class CARVER_OT_operator(bpy.types.Operator):
 
 		self.ProfileBrush = None
 		self.ObjectBrush = None
-		self.InitBrushPosition = None
-		self.InitBrushScale = None
-		self.InitBrushQRotation = None
-		self.InitBrushERotation = None
-		self.InitBrushARotation = None
 
-		self.ObjectBrush_DT = "WIRE"
-		self.XRay = False
+		self.InitBrush = {
+		'location' : None,
+		'scale' : None,
+		'rotation_quaternion' : None,
+		'rotation_euler' : None,
+		'display_type' : 'WIRE',
+		'show_in_front' : False
+		}
+
 
 		# Grid mesh
 		self.nbcol = 1
@@ -253,7 +264,7 @@ class CARVER_OT_operator(bpy.types.Operator):
 
 					if self.alt:
 						# Save selected objects
-						self.SavSel = context.selected_objects.copy()
+						self.all_sel_obj_list = context.selected_objects.copy()
 						if len(context.selected_objects) > 0:
 							bpy.ops.object.select_all(action='TOGGLE')
 
@@ -268,7 +279,7 @@ class CARVER_OT_operator(bpy.types.Operator):
 						# Save selected objects
 						if self.ObjectMode:
 							if len(self.ObjectBrush.children) > 0:
-								self.SavSel = context.selected_objects.copy()
+								self.all_sel_obj_list = context.selected_objects.copy()
 								if len(context.selected_objects) > 0:
 									bpy.ops.object.select_all(action='TOGGLE')
 
@@ -327,7 +338,7 @@ class CARVER_OT_operator(bpy.types.Operator):
 
 			# Brush Mode
 			if event.type == self.carver_prefs.Key_Brush and event.value == 'PRESS':
-				self.DontApply = False
+				self.dont_apply_boolean = False
 				if (self.ProfileMode is False) and (self.ObjectMode is False):
 					self.ProfileMode = True
 				else:
@@ -369,29 +380,30 @@ class CARVER_OT_operator(bpy.types.Operator):
 					if self.ObjectBrush is not None:
 						if self.ObjectMode is False:
 							if self.ObjectBrush is not None:
-								self.ObjectBrush.location = self.InitBrushPosition
-								self.ObjectBrush.scale = self.InitBrushScale
-								self.ObjectBrush.rotation_quaternion = self.InitBrushQRotation
-								self.ObjectBrush.rotation_euler = self.InitBrushERotation
-								self.ObjectBrush.display_type = self.ObjectBrush_DT
-								self.ObjectBrush.show_in_front = self.XRay
+								self.ObjectBrush.location = self.InitBrush['location']
+								self.ObjectBrush.scale = self.InitBrush['scale']
+								self.ObjectBrush.rotation_quaternion = self.InitBrush['rotation_quaternion']
+								self.ObjectBrush.rotation_euler = self.InitBrush['rotation_euler']
+								self.ObjectBrush.display_type = self.InitBrush['display_type']
+								self.ObjectBrush.show_in_front = self.InitBrush['show_in_front']
 
-								# Remove solidify modifier
+								#Store active and selected objects
 								Selection_Save(self)
-								self.BrushSolidify = False
 
+								#Remove Carver modifier
+								self.BrushSolidify = False
 								bpy.ops.object.select_all(action='TOGGLE')
 								self.ObjectBrush.select_set(True)
 								context.view_layer.objects.active = self.ObjectBrush
-
 								bpy.ops.object.modifier_remove(modifier="CT_SOLIDIFY")
 
+								#Restore selected and active object
 								Selection_Restore(self)
 						else:
-							if self.Solidify_Active_Start:
+							if self.SolidifyPossible:
+								#Store active and selected objects
 								Selection_Save(self)
 								self.BrushSolidify = True
-								self.SolidifyPossible = True
 								bpy.ops.object.select_all(action='TOGGLE')
 								self.ObjectBrush.select_set(True)
 								context.view_layer.objects.active = self.ObjectBrush
@@ -400,6 +412,8 @@ class CARVER_OT_operator(bpy.types.Operator):
 								bpy.ops.object.modifier_add(type='SOLIDIFY')
 								context.object.modifiers["Solidify"].name = "CT_SOLIDIFY"
 								context.object.modifiers["CT_SOLIDIFY"].thickness = 0.1
+
+								#Restore selected and active object
 								Selection_Restore(self)
 
 			# Help display
@@ -416,12 +430,12 @@ class CARVER_OT_operator(bpy.types.Operator):
 					self.Closed = not self.Closed
 
 			if event.type == self.carver_prefs.Key_Apply and event.value == 'PRESS':
-				self.DontApply = not self.DontApply
+				self.dont_apply_boolean = not self.dont_apply_boolean
 
 			# Scale object
 			if event.type == self.carver_prefs.Key_Scale and event.value == 'PRESS':
 				if self.ObjectScale is False:
-					self.am = event.mouse_region_x, event.mouse_region_y
+					self.mouse_region = event.mouse_region_x, event.mouse_region_y
 				self.ObjectScale = True
 
 			# Grid : Add column
@@ -447,13 +461,13 @@ class CARVER_OT_operator(bpy.types.Operator):
 			# Grid : Scale gap between columns
 			if event.type == self.carver_prefs.Key_Gapy and event.value == 'PRESS':
 				if self.GridScaleX is False:
-					self.am = event.mouse_region_x, event.mouse_region_y
+					self.mouse_region = event.mouse_region_x, event.mouse_region_y
 				self.GridScaleX = True
 
 			# Grid : Scale gap between rows
 			if event.type == self.carver_prefs.Key_Gapx and event.value == 'PRESS':
 				if self.GridScaleY is False:
-					self.am = event.mouse_region_x, event.mouse_region_y
+					self.mouse_region = event.mouse_region_x, event.mouse_region_y
 				self.GridScaleY = True
 
 			# Cursor depth or solidify pattern
@@ -473,7 +487,7 @@ class CARVER_OT_operator(bpy.types.Operator):
 								if abs(v.co.z - z) > ErrorMarge:
 									solidify = False
 									self.CarveDepth = True
-									self.am = event.mouse_region_x, event.mouse_region_y
+									self.mouse_region = event.mouse_region_x, event.mouse_region_y
 									break
 
 						if solidify:
@@ -510,14 +524,14 @@ class CARVER_OT_operator(bpy.types.Operator):
 								Selection_Restore(self)
 
 							self.WidthSolidify = not self.WidthSolidify
-							self.am = event.mouse_region_x, event.mouse_region_y
+							self.mouse_region = event.mouse_region_x, event.mouse_region_y
 
 			if event.type == self.carver_prefs.Key_BrushDepth and event.value == 'PRESS':
 				if self.ObjectMode:
 					self.CarveDepth = False
 
 					self.BrushDepth = True
-					self.am = event.mouse_region_x, event.mouse_region_y
+					self.mouse_region = event.mouse_region_x, event.mouse_region_y
 
 			# Random rotation
 			if event.type == 'R' and event.value == 'PRESS':
@@ -534,9 +548,7 @@ class CARVER_OT_operator(bpy.types.Operator):
 
 			# Mouse move
 			if event.type == 'MOUSEMOVE':
-				# print("self.ObjectMode: ", self.ObjectMode)
-				# print("self.ProfileMode: ", self.ProfileMode)
-				# print("self.CutMode: ", self.CutMode)
+
 				if self.ObjectMode or self.ProfileMode:
 					fac = 50.0
 					if self.shift:
@@ -544,34 +556,34 @@ class CARVER_OT_operator(bpy.types.Operator):
 					if self.WidthSolidify:
 						if self.ObjectMode:
 							bpy.data.objects[self.ObjectBrush.name].modifiers[
-								"CT_SOLIDIFY"].thickness += (event.mouse_region_x - self.am[0]) / fac
+								"CT_SOLIDIFY"].thickness += (event.mouse_region_x - self.mouse_region[0]) / fac
 						elif self.ProfileMode:
 							bpy.data.objects[self.ProfileBrush.name].modifiers[
-								"CT_SOLIDIFY"].thickness += (event.mouse_region_x - self.am[0]) / fac
-						self.am = event.mouse_region_x, event.mouse_region_y
+								"CT_SOLIDIFY"].thickness += (event.mouse_region_x - self.mouse_region[0]) / fac
+						self.mouse_region = event.mouse_region_x, event.mouse_region_y
 					elif self.CarveDepth:
 						for v in self.ObjectBrush.data.vertices:
-							v.co.z += (event.mouse_region_x - self.am[0]) / fac
-						self.am = event.mouse_region_x, event.mouse_region_y
+							v.co.z += (event.mouse_region_x - self.mouse_region[0]) / fac
+						self.mouse_region = event.mouse_region_x, event.mouse_region_y
 					elif self.BrushDepth:
-						self.BrushDepthOffset += (event.mouse_region_x - self.am[0]) / fac
-						self.am = event.mouse_region_x, event.mouse_region_y
+						self.BrushDepthOffset += (event.mouse_region_x - self.mouse_region[0]) / fac
+						self.mouse_region = event.mouse_region_x, event.mouse_region_y
 					else:
 						if (self.GridScaleX):
-							self.gapx += (event.mouse_region_x - self.am[0]) / 50
-							self.am = event.mouse_region_x, event.mouse_region_y
+							self.gapx += (event.mouse_region_x - self.mouse_region[0]) / 50
+							self.mouse_region = event.mouse_region_x, event.mouse_region_y
 							update_grid(self, context)
 							return {'RUNNING_MODAL'}
 
 						elif (self.GridScaleY):
-							self.gapy += (event.mouse_region_x - self.am[0]) / 50
-							self.am = event.mouse_region_x, event.mouse_region_y
+							self.gapy += (event.mouse_region_x - self.mouse_region[0]) / 50
+							self.mouse_region = event.mouse_region_x, event.mouse_region_y
 							update_grid(self, context)
 							return {'RUNNING_MODAL'}
 
 						elif self.ObjectScale:
-							self.ascale = -(event.mouse_region_x - self.am[0])
-							self.am = event.mouse_region_x, event.mouse_region_y
+							self.ascale = -(event.mouse_region_x - self.mouse_region[0])
+							self.mouse_region = event.mouse_region_x, event.mouse_region_y
 
 							if self.ObjectMode:
 								self.ObjectBrush.scale.x -= float(self.ascale) / 150.0
@@ -595,10 +607,10 @@ class CARVER_OT_operator(bpy.types.Operator):
 									self.aRotZ = - \
 										((int((event.mouse_region_x - self.xSavMouse) / 10.0) * PI / 4.0) * 25.0)
 								else:
-									self.aRotZ -= event.mouse_region_x - self.am[0]
+									self.aRotZ -= event.mouse_region_x - self.mouse_region[0]
 								self.ascale = 0.0
 
-								self.am = event.mouse_region_x, event.mouse_region_y
+								self.mouse_region = event.mouse_region_x, event.mouse_region_y
 							else:
 								target_hit, target_normal, target_eul_rotation = Pick(context, event, self)
 								if target_hit is not None:
@@ -667,7 +679,7 @@ class CARVER_OT_operator(bpy.types.Operator):
 							up_vector = Vector((0.0, 0.0, 1.0))
 							self.quat_rot_axis = rot_axis_quat(up_vector, target_normal)
 							self.quat_rot = target_eul_rotation @ self.quat_rot_axis
-						self.am = event.mouse_region_x, event.mouse_region_y
+						self.mouse_region = event.mouse_region_x, event.mouse_region_y
 						self.xSavMouse = event.mouse_region_x
 
 						if self.ctrl:
@@ -734,16 +746,16 @@ class CARVER_OT_operator(bpy.types.Operator):
 								# Random rotation
 								context.scene.mesh_carver.ORandom = self.RandomRotation
 								# Apply operation
-								context.scene.mesh_carver.DontApply = self.DontApply
+								context.scene.mesh_carver.DontApply = self.dont_apply_boolean
 
 								# if Object mode, set intiale state
 								if self.ObjectBrush is not None:
-									self.ObjectBrush.location = self.InitBrushPosition
-									self.ObjectBrush.scale = self.InitBrushScale
-									self.ObjectBrush.rotation_quaternion = self.InitBrushQRotation
-									self.ObjectBrush.rotation_euler = self.InitBrushERotation
-									self.ObjectBrush.display_type = self.ObjectBrush_DT
-									self.ObjectBrush.show_in_front = self.XRay
+									self.ObjectBrush.location = self.InitBrush['location']
+									self.ObjectBrush.scale = self.InitBrush['scale']
+									self.ObjectBrush.rotation_quaternion = self.InitBrush['rotation_quaternion']
+									self.ObjectBrush.rotation_euler = self.InitBrush['rotation_euler']
+									self.ObjectBrush.display_type = self.InitBrush['display_type']
+									self.ObjectBrush.show_in_front = self.InitBrush['show_in_front']
 
 									# remove solidify
 									Selection_Save(self)
@@ -805,16 +817,16 @@ class CARVER_OT_operator(bpy.types.Operator):
 				# Random Rotation
 				context.scene.mesh_carver.ORandom = self.RandomRotation
 				# Apply boolean operation
-				context.scene.mesh_carver.DontApply = self.DontApply
+				context.scene.mesh_carver.DontApply = self.dont_apply_boolean
 
 				# Reset Object
 				if self.ObjectBrush is not None:
-					self.ObjectBrush.location = self.InitBrushPosition
-					self.ObjectBrush.scale = self.InitBrushScale
-					self.ObjectBrush.rotation_quaternion = self.InitBrushQRotation
-					self.ObjectBrush.rotation_euler = self.InitBrushERotation
-					self.ObjectBrush.display_type = self.ObjectBrush_DT
-					self.ObjectBrush.show_in_front = self.XRay
+					self.ObjectBrush.location = self.InitBrush['location']
+					self.ObjectBrush.scale = self.InitBrush['scale']
+					self.ObjectBrush.rotation_quaternion = self.InitBrush['rotation_quaternion']
+					self.ObjectBrush.rotation_euler = self.InitBrush['rotation_euler']
+					self.ObjectBrush.display_type = self.InitBrush['display_type']
+					self.ObjectBrush.show_in_front = self.InitBrush['show_in_front']
 
 					# Remove solidify modifier
 					Selection_Save(self)
@@ -870,23 +882,22 @@ class CARVER_OT_operator(bpy.types.Operator):
 		if context.area.type != 'VIEW_3D':
 			self.report({'WARNING'},
 						"View3D not found or not currently active. Operation Cancelled")
+			self.cancel(context)
 			return {'CANCELLED'}
+
+		# test if some other object types are selected that are not meshes
+		for obj in context.selected_objects:
+			if obj.type != "MESH":
+				self.report({'WARNING'},
+				"Some selected objects are not of the Mesh type. Operation Cancelled")
+				self.cancel(context)
+				return {'CANCELLED'}
 
 		if context.mode == 'EDIT_MESH':
 			bpy.ops.object.mode_set(mode='OBJECT')
 
-		# test if some other object types are selected that are not meshes
-		test_selection = True
+		#Load the Carver preferences
 		self.carver_prefs = bpy.context.preferences.addons[__package__].preferences
-
-		for obj in context.selected_objects:
-			if obj.type != "MESH":
-				test_selection = False
-				break
-		if not test_selection:
-			self.report({'WARNING'},
-						"Some selected objects are not of the Mesh type. Operation Cancelled")
-			return {"CANCELLED"}
 
 		# Get default patterns
 		self.Profils = []
@@ -896,7 +907,6 @@ class CARVER_OT_operator(bpy.types.Operator):
 		for o in context.scene.objects:
 			if not o.name.startswith(self.carver_prefs.ProfilePrefix):
 				continue
-
 			# In-scene profiles may have changed, remove them to refresh
 			for m in bpy.data.meshes:
 				if m.name.startswith(self.carver_prefs.ProfilePrefix):
@@ -923,10 +933,10 @@ class CARVER_OT_operator(bpy.types.Operator):
 		self.nProfil = context.scene.mesh_carver.nProfile
 		self.MaxProfil = len(self.Profils)
 
+
 		# reset selected profile if last profile exceeds length of array
 		if self.nProfil >= self.MaxProfil:
 			self.nProfil = context.scene.mesh_carver.nProfile = 0
-
 
 		if len(context.selected_objects) > 1:
 			self.ObjectBrush = context.active_object
@@ -937,31 +947,31 @@ class CARVER_OT_operator(bpy.types.Operator):
 			context.collection.objects.link(ob)
 			context.scene.update()
 
-			# Get default variables
-			self.InitBrushPosition = self.ObjectBrush.location.copy()
-			self.InitBrushScale = self.ObjectBrush.scale.copy()
-			self.InitBrushQRotation = self.ObjectBrush.rotation_quaternion.copy()
-			self.InitBrushERotation = self.ObjectBrush.rotation_euler.copy()
-			self.ObjectBrush_DT = self.ObjectBrush.display_type
-			self.XRay = self.ObjectBrush.show_in_front
+			# Save default variables
+			self.InitBrush['location'] = self.ObjectBrush.location.copy()
+			self.InitBrush['scale'] = self.ObjectBrush.scale.copy()
+			self.InitBrush['rotation_quaternion'] = self.ObjectBrush.rotation_quaternion.copy()
+			self.InitBrush['rotation_euler'] = self.ObjectBrush.rotation_euler.copy()
+			self.InitBrush['display_type'] = self.ObjectBrush.display_type
+			self.InitBrush['show_in_front'] = self.ObjectBrush.show_in_front
+
 			# Test if flat object
 			z = self.ObjectBrush.data.vertices[0].co.z
 			ErrorMarge = 0.01
-			self.Solidify_Active_Start = True
+			self.SolidifyPossible = True
 			for v in self.ObjectBrush.data.vertices:
 				if abs(v.co.z - z) > ErrorMarge:
-					self.Solidify_Active_Start = False
+					self.SolidifyPossible = False
 					break
-			self.SolidifyPossible = False
 
 		self.CList = []
 		self.OPList = []
 		self.RList = []
 		self.OB_List = []
 
-		for ent in context.selected_objects:
-			if ent != self.ObjectBrush:
-				self.OB_List.append(ent)
+		for obj in context.selected_objects:
+			if obj != self.ObjectBrush:
+				self.OB_List.append(obj)
 
 		# Left button
 		self.LMB = False
@@ -983,14 +993,14 @@ class CARVER_OT_operator(bpy.types.Operator):
 
 	def CreateGeometry(self):
 		context = bpy.context
-		bLocalView = False
+		in_local_view = False
 
 		for area in context.screen.areas:
 			if area.type == 'VIEW_3D':
 				if area.spaces[0].local_view is not None:
-					bLocalView = True
+					in_local_view = True
 
-		if bLocalView:
+		if in_local_view:
 			bpy.ops.view3d.localview()
 
 		if self.ExclusiveCreateMode:
@@ -1034,10 +1044,10 @@ class CARVER_OT_operator(bpy.types.Operator):
 		bpy.data.objects[self.CurrentObj.name].select_set(True)
 		bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY')
 
-		for o in self.SavSel:
+		for o in self.all_sel_obj_list:
 			bpy.data.objects[o.name].select_set(True)
 
-		if bLocalView:
+		if in_local_view:
 			bpy.ops.view3d.localview()
 
 		self.CutMode = False
@@ -1048,27 +1058,33 @@ class CARVER_OT_operator(bpy.types.Operator):
 		context = bpy.context
 
 		# Local view ?
-		bLocalView = False
+		in_local_view = False
 		for area in context.screen.areas:
 			if area.type == 'VIEW_3D':
 				if area.spaces[0].local_view is not None:
-					bLocalView = True
+					in_local_view = True
 
-		if bLocalView:
+		if in_local_view:
 			bpy.ops.view3d.localview()
 
 		# Save cursor position
 		CursorLocation = context.scene.cursor.location.copy()
 
-		ActiveObjList = []
+		#List of selected objects
+		selected_obj_list = []
+
+		#Cut Mode with line
 		if (self.ObjectMode is False) and (self.ProfileMode is False):
+
+			#Compute the bounding Box
 			objBBDiagonal = objDiagonal(self.CurrentSelection[0])
-			subdivisions = 32
-			if self.DontApply:
+			if self.dont_apply_boolean:
 				subdivisions = 1
+			else:
+				subdivisions = 32
 
 			# Get selected objects
-			ActiveObjList = context.selected_objects.copy()
+			selected_obj_list = context.selected_objects.copy()
 
 			bpy.ops.object.select_all(action='TOGGLE')
 
@@ -1080,8 +1096,10 @@ class CARVER_OT_operator(bpy.types.Operator):
 			bpy.ops.object.mode_set(mode='EDIT')
 			bpy.ops.mesh.select_all(action='SELECT')
 			bpy.ops.mesh.select_mode(type="EDGE")
+			#Translate the created mesh away from the view
 			if (self.snapCursor is False) or (self.ForceRebool):
 				bpy.ops.transform.translate(value=self.ViewVector * objBBDiagonal * subdivisions)
+			#Extrude the mesh region and move the result
 			bpy.ops.mesh.extrude_region_move(
 				TRANSFORM_OT_translate={"value": -self.ViewVector * objBBDiagonal * subdivisions * 2})
 			bpy.ops.mesh.select_all(action='SELECT')
@@ -1092,10 +1110,10 @@ class CARVER_OT_operator(bpy.types.Operator):
 			if self.ObjectMode:
 				for o in self.CurrentSelection:
 					if o != self.ObjectBrush:
-						ActiveObjList.append(o)
+						selected_obj_list.append(o)
 				self.CurrentObj = self.ObjectBrush
 			else:
-				ActiveObjList = self.CurrentSelection
+				selected_obj_list = self.CurrentSelection
 				self.CurrentObj = self.ProfileBrush
 
 		for o in self.CurrentSelection:
@@ -1104,7 +1122,7 @@ class CARVER_OT_operator(bpy.types.Operator):
 		# List objects create with rebool
 		lastSelected = []
 
-		for ActiveObj in ActiveObjList:
+		for ActiveObj in selected_obj_list:
 			context.scene.cursor.location = CursorLocation
 
 			if len(context.selected_objects) > 0:
@@ -1112,7 +1130,7 @@ class CARVER_OT_operator(bpy.types.Operator):
 
 			# Test if initial object has bevel
 			BevelAO = False
-			for obj in ActiveObjList:
+			for obj in selected_obj_list:
 				for mb in obj.modifiers:
 					if mb.type == 'BEVEL':
 						BevelAO = True
@@ -1144,7 +1162,7 @@ class CARVER_OT_operator(bpy.types.Operator):
 					boolean_operation(bool_type="DIFFERENCE")
 
 				# Apply booleans
-				if self.DontApply is False:
+				if self.dont_apply_boolean is False:
 					BMname = "CT_" + self.CurrentObj.name
 					for mb in ActiveObj.modifiers:
 						if (mb.type == 'BOOLEAN') and (mb.name == BMname):
@@ -1175,7 +1193,6 @@ class CARVER_OT_operator(bpy.types.Operator):
 					if len(rebool_RT.data.vertices) > 0:
 						# Create Bevel for new objects
 						if BevelAO:
-							print("CREATE BEVEL : ", rebool_RT)
 							CreateBevel(context, context.selected_objects[0])
 						UndoAdd(self, "REBOOL", context.selected_objects[0])
 
@@ -1191,7 +1208,7 @@ class CARVER_OT_operator(bpy.types.Operator):
 				if self.ProfileMode:
 					context.view_layer.objects.active = self.ProfileBrush
 
-			if self.DontApply is False:
+			if self.dont_apply_boolean is False:
 				# Apply booleans
 				BMname = "CT_" + self.CurrentObj.name
 				for mb in ActiveObj.modifiers:
@@ -1210,7 +1227,7 @@ class CARVER_OT_operator(bpy.types.Operator):
 
 		context.scene.cursor.location = CursorLocation
 
-		if self.DontApply is False:
+		if self.dont_apply_boolean is False:
 			# Remove cut object
 			if (self.ObjectMode is False) and (self.ProfileMode is False):
 				if len(context.selected_objects) > 0:
@@ -1219,7 +1236,7 @@ class CARVER_OT_operator(bpy.types.Operator):
 				bpy.ops.object.delete(use_global=False)
 			else:
 				if self.ObjectMode:
-					self.ObjectBrush.display_type = self.ObjectBrush_DT
+					self.ObjectBrush.display_type = self.InitBrush['display_type']
 
 		if len(context.selected_objects) > 0:
 			bpy.ops.object.select_all(action='TOGGLE')
@@ -1228,7 +1245,7 @@ class CARVER_OT_operator(bpy.types.Operator):
 		for obj in lastSelected:
 			bpy.data.objects[obj.name].select_set(True)
 
-		for ActiveObj in ActiveObjList:
+		for ActiveObj in selected_obj_list:
 			bpy.data.objects[ActiveObj.name].select_set(True)
 			context.view_layer.objects.active = ActiveObj
 		# Update bevel
@@ -1241,7 +1258,7 @@ class CARVER_OT_operator(bpy.types.Operator):
 		if self.ObjectMode:
 			# Re-select brush
 			self.ObjectBrush.select_set(True)
-		for ActiveObj in ActiveObjList:
+		for ActiveObj in selected_obj_list:
 			bpy.data.objects[ActiveObj.name].select_set(True)
 			context.view_layer.objects.active = ActiveObj
 
@@ -1252,7 +1269,7 @@ class CARVER_OT_operator(bpy.types.Operator):
 		if self.ProfileMode:
 			self.ProfileBrush.display_type = "WIRE"
 
-		if bLocalView:
+		if in_local_view:
 			bpy.ops.view3d.localview()
 
 		# Reset variables
@@ -1261,6 +1278,8 @@ class CARVER_OT_operator(bpy.types.Operator):
 		self.mouse_path = [(0, 0), (0, 0)]
 
 		self.ForceRebool = False
+
+		# bpy.ops.mesh.customdata_custom_splitnormals_clear()
 
 
 class CarverProperties(bpy.types.PropertyGroup):

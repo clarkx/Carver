@@ -12,7 +12,8 @@ from math import(
 
 from .carver_utils import (
 	draw_circle,
-	draw_shader
+	draw_shader,
+	objDiagonal,
 	)
 
 from mathutils import (
@@ -22,79 +23,84 @@ from mathutils import (
 	Quaternion,
 )
 
-# Draw Text (Center position)
-def DrawCenterText(text, xt, yt, Size, colors, self):
+def draw_help(self, context, help_txt):
+	""" Return the dimensions of each part of the text """
+
+	#Extract the longest first option in sublist
+	max_option = max(list(blf.dimensions(0, row[0])[0] for row in help_txt))
+
+	#Extract the longest key in sublist
+	max_key = max(list(blf.dimensions(0, row[1])[0] for row in help_txt))
+
+	#Space between option and key  with a comma separator (" : ")
+	comma = blf.dimensions(0, "_:_")[0]
+
+	#Get a default height for all the letters
+	line_height = (blf.dimensions(0, "gM")[1] * 1.45)
+
+	#Get the total height of the text
+	bloc_height = 0
+	for row in help_txt:
+		bloc_height += line_height
+
+	return(help_txt, bloc_height, max_option, max_key, comma)
+
+def draw_string(self, color1, color2, left, bottom, text, max_option, divide = 1):
+	""" Draw the text like 'option : key' or just 'option' """
+
 	font_id = 0
-	# Offset Shadow
-	Sshadow_x = 2
-	Sshadow_y = -2
+	blf.enable(font_id,blf.SHADOW)
+	blf.shadow(font_id, 0, 0.0, 0.0, 0.0, 1.0)
+	blf.shadow_offset(font_id,2,-2)
+	line_height = (blf.dimensions(font_id, "gM")[1] * 1.45)
+	y_offset = 5
+	left_save = left
 
-	blf.size(font_id, Size, 72)
-	blf.position(font_id, xt + Sshadow_x - blf.dimensions(font_id, text)[0] / 2, yt + Sshadow_y, 0)
-	blf.color(font_id, 0.0, 0.0, 0.0, 1.0)
-
-	blf.draw(font_id, text)
-	blf.position(font_id, xt - blf.dimensions(font_id, text)[0] / 2, yt, 0)
-	if colors is not None:
-		mcolor = Color((colors[0], colors[1], colors[2]))
-		blf.color(font_id,mcolor.r, mcolor.g, mcolor.b, 1.0)
+	if isinstance(text,list):
+		for string in text:
+			blf.position(font_id, (left), (bottom + y_offset), 0)
+			blf.color(font_id, *color1)
+			blf.draw(font_id, string[0])
+			blf.position(font_id, (left + max_option), (bottom + y_offset), 0)
+			blf.draw(font_id, " : ")
+			blf.color(font_id, *color2)
+			blf.position(font_id, (left + max_option + 15), (bottom + y_offset), 0)
+			blf.draw(font_id, string[1])
+			y_offset -= line_height
 	else:
-		blf.color(font_id,1.0, 1.0, 1.0, 1.0)
-	blf.draw(font_id, text)
+		blf.position(font_id, left, (bottom + y_offset), 0)
+		blf.color(font_id, *color1)
+		blf.draw(font_id, text)
+		y_offset -= line_height
 
-
-# Draw text (Left position)
-def DrawLeftText(text, xt, yt, Size, colors, self):
-	font_id = 0
-	# Offset Shadow
-	Sshadow_x = 2
-	Sshadow_y = -2
-
-	blf.size(font_id, Size, 72)
-	blf.position(font_id, xt + Sshadow_x, yt + Sshadow_y, 0)
-	blf.color(font_id, 0.0, 0.0, 0.0, 1.0)
-	blf.draw(font_id, text)
-	blf.position(font_id, xt, yt, 0)
-	if colors is not None:
-		mcolor = Color((colors[0], colors[1], colors[2]))
-		blf.color(font_id, mcolor.r, mcolor.g, mcolor.b, 1.0)
-	else:
-		blf.color(font_id, 1.0, 1.0, 1.0, 1.0)
-	blf.draw(font_id, text)
-
-
-# Draw text (Right position)
-def DrawRightText(text, xt, yt, Size, colors, self):
-	font_id = 0
-	# Offset Shadow
-	Sshadow_x = 2
-	Sshadow_y = -2
-
-	blf.size(font_id, Size, 72)
-	blf.position(font_id, xt + Sshadow_x - blf.dimensions(font_id, text)[0], yt + Sshadow_y, 0)
-	blf.color(font_id, 0.0, 0.0, 0.0, 1.0)
-	blf.draw(font_id, text)
-	blf.position(font_id, xt - blf.dimensions(font_id, text)[0], yt, 0)
-	if colors is not None:
-		mcolor = Color((colors[0], colors[1], colors[2]))
-		blf.color(font_id, mcolor.r, mcolor.g, mcolor.b, 1.0)
-	else:
-		blf.color(font_id, 1.0, 1.0, 1.0, 1.0)
-	blf.draw(font_id, text)
-
+	blf.disable(font_id,blf.SHADOW)
 
 # Opengl draws
 def draw_callback_px(self, context):
 	font_id = 0
 	region = context.region
+	UIColor = (0.992, 0.5518, 0.0, 1.0)
 
 	# Cut Type
 	RECTANGLE = 0
 	LINE = 1
 	CIRCLE = 2
 	self.carver_prefs = context.preferences.addons[__package__].preferences
+
+	# Color
+	color1 = (1.0, 1.0, 1.0, 1.0)
+	color2 = UIColor
+
+	# Primitives type
+	PrimitiveType = "Rectangle "
+	if self.CutType == CIRCLE:
+		PrimitiveType = "Circle "
+	if self.CutType == LINE:
+		PrimitiveType = "Line "
+
 	# Width screen
 	overlap = context.preferences.system.use_region_overlap
+
 	t_panel_width = 0
 	if overlap:
 		for region in context.area.regions:
@@ -104,6 +110,7 @@ def draw_callback_px(self, context):
 	# Initial position
 	xt = int(region.width / 2.0)
 	yt = 130
+	yCmd = yt - 30
 	if region.width >= 850:
 		xt = int(region.width / 2.0)
 		yt = 150
@@ -120,11 +127,11 @@ def draw_callback_px(self, context):
 			BooleanMode = \
 				"Difference" if (self.shift is False) and (self.ForceRebool is False) else "Rebool"
 
-	UIColor = (0.992, 0.5518, 0.0, 1.0)
-
 	# Display boolean mode
 	text_size = 40 if region.width >= 850 else 20
-	DrawCenterText(BooleanMode, xt, yt, text_size, UIColor, self)
+	blf.size(0, text_size, 72)
+
+	draw_string(self, color2, color2, xt - (blf.dimensions(0, BooleanMode)[0]) / 2, yt, BooleanMode, 0, divide = 2)
 
 	# Separator (Line)
 	LineWidth = 75
@@ -134,294 +141,167 @@ def draw_callback_px(self, context):
 	coords = [(int(xt - LineWidth), yt - 8), (int(xt + LineWidth), yt - 8)]
 	draw_shader(self, UIColor, 1, 'LINES', coords, self.carver_prefs.LineWidth)
 
-
-	# Text position
-	xt = xt - blf.dimensions(font_id, "Difference")[0] / 2 + 80
-
-	# Primitives type
-	PrimitiveType = "Rectangle "
-	if self.CutType == CIRCLE:
-		PrimitiveType = "Circle "
-	if self.CutType == LINE:
-		PrimitiveType = "Line "
-
-	# Variables according to screen size
-	IFontSize = 12
-	yInterval = 20
-	yCmd = yt - 30
-
-	if region.width >= 850:
-		IFontSize = 18
-		yInterval = 25
-
-	# Color
-	Color0 = None
-	Color1 = UIColor
+	#Get the size of the text
+	text_size = 18 if region.width >= 850 else 12
+	blf.size(0, int(round(text_size, 0)), 72)
 
 	# Help Display
 	if (self.ObjectMode is False) and (self.ProfileMode is False):
-		TypeStr = "Cut Type [Space] : "
 		if self.CreateMode:
-			TypeStr = "Type [Space] : "
-		blf.size(font_id, IFontSize, 72)
-		OpsStr = TypeStr + PrimitiveType
-		TotalWidth = blf.dimensions(font_id, OpsStr)[0]
-		xLeft = region.width / 2 - TotalWidth / 2
-		xLeftP = xLeft + blf.dimensions(font_id, TypeStr)[0]
-		DrawLeftText(TypeStr, xLeft, yCmd, IFontSize, Color0, self)
-		DrawLeftText(PrimitiveType, xLeftP, yCmd, IFontSize, Color1, self)
+			help_txt = [["Type [Space]", PrimitiveType]]
+		else:
+			help_txt = [["Cut Type [Space]", PrimitiveType]]
 
-		# Depth Cursor
-		TypeStr = "Cursor Depth [" + self.carver_prefs.Key_Depth + "] : "
+		#Depth Cursor
+		TypeStr = "Cursor Depth [" + self.carver_prefs.Key_Depth + "]"
 		BoolStr = "(ON)" if self.snapCursor else "(OFF)"
-		OpsStr = TypeStr + BoolStr
+		help_txt += [[TypeStr, BoolStr]]
 
-		TotalWidth = blf.dimensions(font_id, OpsStr)[0]
-		xLeft = region.width / 2 - TotalWidth / 2
-		xLeftP = xLeft + blf.dimensions(font_id, TypeStr)[0]
-		DrawLeftText(TypeStr, xLeft, yCmd - yInterval, IFontSize, Color0, self)
-		DrawLeftText(BoolStr, xLeftP, yCmd - yInterval, IFontSize, Color1, self)
-
-		# Close poygonal shape
+		#Close poygonal shape
 		if self.CreateMode:
-			TypeStr = "Close [" + self.carver_prefs.Key_Close + "] : "
+			TypeStr = "Close [" + self.carver_prefs.Key_Close + "]"
 			BoolStr = "(ON)" if self.Closed else "(OFF)"
-			OpsStr = TypeStr + BoolStr
-
-			TotalWidth = blf.dimensions(font_id, OpsStr)[0]
-			xLeft = region.width / 2 - TotalWidth / 2
-			xLeftP = xLeft + blf.dimensions(font_id, TypeStr)[0]
-			DrawLeftText(TypeStr, xLeft, yCmd - yInterval * 2, IFontSize, Color0, self)
-			DrawLeftText(BoolStr, xLeftP, yCmd - yInterval * 2, IFontSize, Color1, self)
+			help_txt += [[TypeStr, BoolStr]]
 
 		if self.CreateMode is False:
-			# Apply Booleans
-			TypeStr = "Apply Operations [" + self.carver_prefs.Key_Apply + "] : "
-			BoolStr = "(OFF)" if self.DontApply else "(ON)"
-			OpsStr = TypeStr + BoolStr
+			#Apply Booleans
+			TypeStr = "Apply Operations [" + self.carver_prefs.Key_Apply + "]"
+			BoolStr = "(OFF)" if self.dont_apply_boolean else "(ON)"
+			help_txt += [[TypeStr, BoolStr]]
 
-			TotalWidth = blf.dimensions(font_id, OpsStr)[0]
-			xLeft = region.width / 2 - TotalWidth / 2
-			xLeftP = xLeft + blf.dimensions(font_id, TypeStr)[0]
-			DrawLeftText(TypeStr, xLeft, yCmd - yInterval * 2, IFontSize, Color0, self)
-			DrawLeftText(BoolStr, xLeftP, yCmd - yInterval * 2, IFontSize, Color1, self)
-
-			# Auto update for bevel
-			TypeStr = "Bevel Update [" + self.carver_prefs.Key_Update + "] : "
+			#Auto update for bevel
+			TypeStr = "Bevel Update [" + self.carver_prefs.Key_Update + "]"
 			BoolStr = "(ON)" if self.Auto_BevelUpdate else "(OFF)"
-			OpsStr = TypeStr + BoolStr
+			help_txt += [[TypeStr, BoolStr]]
 
-			TotalWidth = blf.dimensions(font_id, OpsStr)[0]
-			xLeft = region.width / 2 - TotalWidth / 2
-			xLeftP = xLeft + blf.dimensions(font_id, TypeStr)[0]
-			DrawLeftText(TypeStr, xLeft, yCmd - yInterval * 3, IFontSize, Color0, self)
-			DrawLeftText(BoolStr, xLeftP, yCmd - yInterval * 3, IFontSize, Color1, self)
-
-		# Subdivisions
+		#Circle subdivisions
 		if self.CutType == CIRCLE:
-			y = yCmd - yInterval * 4 if self.CreateMode is False else yCmd - yInterval * 2
-			TypeStr = "Subdivisions [" + self.carver_prefs.Key_Subrem + "][" + self.carver_prefs.Key_Subadd + "] : "
+			TypeStr = "Subdivisions [" + self.carver_prefs.Key_Subrem + "][" + self.carver_prefs.Key_Subadd + "]"
 			BoolStr = str((int(360 / self.stepAngle[self.step])))
-			OpsStr = TypeStr + BoolStr
-			TotalWidth = blf.dimensions(font_id, OpsStr)[0]
-			xLeft = region.width / 2 - TotalWidth / 2
-			xLeftP = xLeft + blf.dimensions(font_id, TypeStr)[0]
-			DrawLeftText(TypeStr, xLeft, y, IFontSize, Color0, self)
-			DrawLeftText(BoolStr, xLeftP, y, IFontSize, Color1, self)
+			help_txt += [[TypeStr, BoolStr]]
 
 	else:
-		# INSTANTIATE:
-		TypeStr = "Instantiate [" + self.carver_prefs.Key_Instant + "] : "
+		#Instantiate
+		TypeStr = "Instantiate [" + self.carver_prefs.Key_Instant + "]"
 		BoolStr = "(ON)" if self.Instantiate else "(OFF)"
-		OpsStr = TypeStr + BoolStr
+		help_txt = [[TypeStr, BoolStr]]
 
-		blf.size(font_id, IFontSize, 72)
-		TotalWidth = blf.dimensions(font_id, OpsStr)[0]
-		xLeft = region.width / 2 - TotalWidth / 2
-		xLeftP = xLeft + blf.dimensions(font_id, TypeStr)[0]
-		DrawLeftText(TypeStr, xLeft, yCmd, IFontSize, Color0, self)
-		DrawLeftText(BoolStr, xLeftP, yCmd, IFontSize, Color1, self)
-
-		# RANDOM ROTATION:
+		#Random rotation
 		if self.alt:
-			TypeStr = "Random Rotation [" + self.carver_prefs.Key_Randrot + "] : "
+			TypeStr = "Random Rotation [" + self.carver_prefs.Key_Randrot + "]"
 			BoolStr = "(ON)" if self.RandomRotation else "(OFF)"
-			OpsStr = TypeStr + BoolStr
+			help_txt += [[TypeStr, BoolStr]]
 
-			blf.size(font_id, IFontSize, 72)
-			TotalWidth = blf.dimensions(font_id, OpsStr)[0]
-			xLeft = region.width / 2 - TotalWidth / 2
-			xLeftP = xLeft + blf.dimensions(font_id, TypeStr)[0]
-			DrawLeftText(TypeStr, xLeft, yCmd - yInterval, IFontSize, Color0, self)
-			DrawLeftText(BoolStr, xLeftP, yCmd - yInterval, IFontSize, Color1, self)
-
-		# THICKNESS:
+		#Thickness
 		if self.BrushSolidify:
-			TypeStr = "Thickness [" + self.carver_prefs.Key_Depth + "] : "
+			TypeStr = "Thickness [" + self.carver_prefs.Key_Depth + "]"
 			if self.ProfileMode:
 				BoolStr = str(round(self.ProfileBrush.modifiers["CT_SOLIDIFY"].thickness, 2))
 			if self.ObjectMode:
 				BoolStr = str(round(self.ObjectBrush.modifiers["CT_SOLIDIFY"].thickness, 2))
-			OpsStr = TypeStr + BoolStr
-			blf.size(font_id, IFontSize, 72)
-			TotalWidth = blf.dimensions(font_id, OpsStr)[0]
-			xLeft = region.width / 2 - TotalWidth / 2
-			xLeftP = xLeft + blf.dimensions(font_id, TypeStr)[0]
+			help_txt += [[TypeStr, BoolStr]]
 
-			self_alt_y = 2 if self.alt else 1
-			DrawLeftText(TypeStr, xLeft, yCmd - yInterval * self_alt_y, IFontSize, Color0, self)
-			DrawLeftText(BoolStr, xLeftP, yCmd - yInterval * self_alt_y, IFontSize, Color1, self)
-
-		# BRUSH DEPTH:
+		#Brush depth
 		if (self.ObjectMode):
-			TypeStr = "Carve Depth [" + self.carver_prefs.Key_Depth + "] : "
+			TypeStr = "Carve Depth [" + self.carver_prefs.Key_Depth + "]"
 			BoolStr = str(round(self.ObjectBrush.data.vertices[0].co.z, 2))
-			OpsStr = TypeStr + BoolStr
+			help_txt += [[TypeStr, BoolStr]]
 
-			blf.size(font_id, IFontSize, 72)
-			TotalWidth = blf.dimensions(font_id, OpsStr)[0]
-			xLeft = region.width / 2 - TotalWidth / 2
-			xLeftP = xLeft + blf.dimensions(font_id, TypeStr)[0]
-
-			self_alt_y = 2 if self.alt else 1
-			DrawLeftText(TypeStr, xLeft, yCmd - yInterval * self_alt_y, IFontSize, Color0, self)
-			DrawLeftText(BoolStr, xLeftP, yCmd - yInterval * self_alt_y, IFontSize, Color1, self)
-
-			TypeStr = "Brush Depth [" + self.carver_prefs.Key_BrushDepth + "] : "
+			TypeStr = "Brush Depth [" + self.carver_prefs.Key_BrushDepth + "]"
 			BoolStr = str(round(self.BrushDepthOffset, 2))
-			OpsStr = TypeStr + BoolStr
+			help_txt += [[TypeStr, BoolStr]]
 
-			blf.size(font_id, IFontSize, 72)
-			TotalWidth = blf.dimensions(font_id, OpsStr)[0]
-			xLeft = region.width / 2 - TotalWidth / 2
-			xLeftP = xLeft + blf.dimensions(font_id, TypeStr)[0]
-
-			self_alt_y = 3 if self.alt else 2
-			DrawLeftText(TypeStr, xLeft, yCmd - yInterval * self_alt_y, IFontSize, Color0, self)
-			DrawLeftText(BoolStr, xLeftP, yCmd - yInterval * self_alt_y, IFontSize, Color1, self)
+	help_txt, bloc_height, max_option, max_key, comma = draw_help(self, context, help_txt)
+	xt = xt - (max_option + max_key + comma ) / 2
+	draw_string(self, color1, color2, xt, yCmd, help_txt, max_option, divide = 2)
 
 	if region.width >= 850:
+
 		if self.AskHelp is False:
+			#Draw a rectangle and put the text "H for Help"
 			xrect = 40
 			yrect = 40
-			coords = [(xrect, yrect), (xrect+90, yrect), (xrect+90, yrect+25), (xrect, yrect+25)]
+			rect_vertices = [(xrect, yrect), (xrect+90, yrect), (xrect+90, yrect+25), (xrect, yrect+25)]
+			draw_shader(self, (0.0, 0.0, 0.0),  0.3, 'TRI_FAN', rect_vertices, self.carver_prefs.LineWidth)
+			help_txt = "[" + self.carver_prefs.Key_Help + "] for help"
+			blf.size(0, int(round(13, 0)), 72)
+			draw_string(self, color1, color2, xrect+10, yrect+5, help_txt, 0)
 
-			draw_shader(self, (0.0, 0.0, 0.0),  0.3, 'TRI_FAN', coords, self.carver_prefs.LineWidth)
-			DrawLeftText("[" + self.carver_prefs.Key_Help + "] for help", xrect + 10, yrect + 8, 13, None, self)
 		else:
+			#Draw the help text
 			xHelp = 30 + t_panel_width
-			yHelp = 80
-			Help_FontSize = 12
-			Help_Interval = 14
-			if region.width >= 850:
-				Help_FontSize = 15
-				Help_Interval = 20
-				yHelp = 220
+			yHelp = 220
 
 			if self.ObjectMode or self.ProfileMode:
 				if self.ProfileMode:
-					DrawLeftText("[" + self.carver_prefs.Key_Brush + "]", xHelp, yHelp +
-								Help_Interval * 2, Help_FontSize, UIColor, self)
-					DrawLeftText(": Object Mode", 150 + t_panel_width, yHelp +
-								Help_Interval * 2, Help_FontSize, None, self)
+					help_txt = [["Object Mode", self.carver_prefs.Key_Brush]]
 				else:
-					DrawLeftText("[" + self.carver_prefs.Key_Brush + "]", xHelp, yHelp +
-								Help_Interval * 2, Help_FontSize, UIColor, self)
-					DrawLeftText(": Return", 150 + t_panel_width, yHelp +
-								Help_Interval * 2, Help_FontSize, None, self)
+					help_txt = [["Cut Mode", self.carver_prefs.Key_Brush]]
+
 			else:
-				DrawLeftText("[" + self.carver_prefs.Key_Brush + "]", xHelp, yHelp +
-							Help_Interval * 2, Help_FontSize, UIColor, self)
-				DrawLeftText(": Profil Brush", 150 + t_panel_width, yHelp +
-							Help_Interval * 2, Help_FontSize, None, self)
-				DrawLeftText("[Ctrl + LMB]", xHelp, yHelp - Help_Interval * 6,
-							Help_FontSize, UIColor, self)
-				DrawLeftText(": Move Cursor", 150 + t_panel_width, yHelp -
-							Help_Interval * 6, Help_FontSize, None, self)
+				help_txt =[
+					  ["Profil Brush", self.carver_prefs.Key_Brush],\
+					  ["Move Cursor", "Ctrl + LMB"]
+					  ]
 
 			if (self.ObjectMode is False) and (self.ProfileMode is False):
 				if self.CreateMode is False:
-					DrawLeftText("[" + self.carver_prefs.Key_Create + "]", xHelp,
-								 yHelp + Help_Interval, Help_FontSize, UIColor, self)
-					DrawLeftText(": Create geometry", 150 + t_panel_width,
-								 yHelp + Help_Interval, Help_FontSize, None, self)
+					help_txt +=[
+						   ["Create geometry", self.carver_prefs.Key_Create],\
+						   ["Move Cursor", "Ctrl + LMB"]
+						   ]
 				else:
-					DrawLeftText("[" + self.carver_prefs.Key_Create + "]", xHelp,
-								 yHelp + Help_Interval, Help_FontSize, UIColor, self)
-					DrawLeftText(": Cut", 150 + t_panel_width, yHelp + Help_Interval,
-								Help_FontSize, None, self)
+					help_txt +=[
+						   ["Cut", self.carver_prefs.Key_Create],\
+						   ["Move Cursor", "Ctrl + LMB"]
+						   ]
+				if self.CutMode == RECTANGLE:
+					help_txt +=[
+						   ["Dimension", "MouseMove"],\
+						   ["Move all", "Alt"],\
+						   ["Validate", "LMB"],\
+						   ["Rebool", "Shift"]
+						   ]
 
-				if self.CutType == RECTANGLE:
-					DrawLeftText("MouseMove", xHelp, yHelp, Help_FontSize, UIColor, self)
-					DrawLeftText("[Alt]", xHelp, yHelp - Help_Interval, Help_FontSize, UIColor, self)
-					DrawLeftText(": Dimension", 150 + t_panel_width, yHelp, Help_FontSize, None, self)
-					DrawLeftText(": Move all", 150 + t_panel_width, yHelp - Help_Interval,
-								Help_FontSize, None, self)
+				elif self.CutMode == CIRCLE:
+					help_txt +=[
+						   ["Rotation and Radius", "MouseMove"],\
+						   ["Move all", "Alt"],\
+						   ["Subdivision", self.carver_prefs.Key_Subrem + " " + self.carver_prefs.Key_Subadd],\
+						   ["Incremental rotation", "Ctrl"],\
+						   ["Rebool", "Shift"]
+						   ]
 
-				if self.CutType == CIRCLE:
-					DrawLeftText("MouseMove", xHelp, yHelp, Help_FontSize, UIColor, self)
-					DrawLeftText("[Alt]", xHelp, yHelp - Help_Interval, Help_FontSize, UIColor, self)
-					DrawLeftText("[" + self.carver_prefs.Key_Subrem + "] [" + context.scene.Key_Subadd + "]",
-								xHelp, yHelp - Help_Interval * 2, Help_FontSize, UIColor, self)
-					DrawLeftText("[Ctrl]", xHelp, yHelp - Help_Interval * 3, Help_FontSize, UIColor, self)
-					DrawLeftText(": Rotation and Radius", 150 + t_panel_width, yHelp, Help_FontSize, None, self)
-					DrawLeftText(": Move all", 150 + t_panel_width, yHelp - Help_Interval,
-								Help_FontSize, None, self)
-					DrawLeftText(": Subdivision", 150 + t_panel_width, yHelp -
-								Help_Interval * 2, Help_FontSize, None, self)
-					DrawLeftText(": Incremental rotation", 150 + t_panel_width,
-								yHelp - Help_Interval * 3, Help_FontSize, None, self)
-
-				if self.CutType == LINE:
-					DrawLeftText("MouseMove", xHelp, yHelp, Help_FontSize, UIColor, self)
-					DrawLeftText("[Alt]", xHelp, yHelp - Help_Interval, Help_FontSize, UIColor, self)
-					DrawLeftText("[Space]", xHelp, yHelp - Help_Interval * 2, Help_FontSize, UIColor, self)
-					DrawLeftText("[Ctrl]", xHelp, yHelp - Help_Interval * 3, Help_FontSize, UIColor, self)
-					DrawLeftText(": Dimension", 150 + t_panel_width, yHelp, Help_FontSize, None, self)
-					DrawLeftText(": Move all", 150 + t_panel_width, yHelp - Help_Interval,
-								Help_FontSize, None, self)
-					DrawLeftText(": Validate", 150 + t_panel_width, yHelp -
-								 Help_Interval * 2, Help_FontSize, None, self)
-					DrawLeftText(": Incremental", 150 + t_panel_width, yHelp -
-								Help_Interval * 3, Help_FontSize, None, self)
-					if self.CreateMode:
-						DrawLeftText("[" + self.carver_prefs.Key_Subadd + "]", xHelp, yHelp -
-									Help_Interval * 4, Help_FontSize, UIColor, self)
-						DrawLeftText(": Close geometry", 150 + t_panel_width, yHelp -
-									Help_Interval * 4, Help_FontSize, None, self)
+				elif self.CutMode == LINE:
+					help_txt +=[
+						   ["Dimension", "MouseMove"],\
+						   ["Move all", "Alt"],\
+						   ["Validate", "Space"],\
+						   ["Incremental", "Ctrl"],\
+						   ["Rebool", "Shift"]
+						   ]
 			else:
-				DrawLeftText("[Space]", xHelp, yHelp + Help_Interval, Help_FontSize, UIColor, self)
-				DrawLeftText(": Difference", 150 + t_panel_width, yHelp + Help_Interval,
-							Help_FontSize, None, self)
-				DrawLeftText("[Shift][Space]", xHelp, yHelp, Help_FontSize, UIColor, self)
-				DrawLeftText(": Rebool", 150 + t_panel_width, yHelp, Help_FontSize, None, self)
-				DrawLeftText("[Alt][Space]", xHelp, yHelp - Help_Interval, Help_FontSize, UIColor, self)
-				DrawLeftText(": Duplicate", 150 + t_panel_width, yHelp - Help_Interval,
-							Help_FontSize, None, self)
-				DrawLeftText("[" + self.carver_prefs.Key_Scale + "]", xHelp, yHelp -
-							Help_Interval * 2, Help_FontSize, UIColor, self)
-				DrawLeftText(": Scale", 150 + t_panel_width, yHelp - Help_Interval * 2,
-							Help_FontSize, None, self)
-				DrawLeftText("[LMB][Move]", xHelp, yHelp - Help_Interval * 3, Help_FontSize, UIColor, self)
-				DrawLeftText(": Rotation", 150 + t_panel_width, yHelp - Help_Interval * 3,
-							Help_FontSize, None, self)
-				DrawLeftText("[Ctrl][LMB][Move]", xHelp, yHelp - Help_Interval * 4,
-							Help_FontSize, UIColor, self)
-				DrawLeftText(": Step Angle", 150 + t_panel_width, yHelp - Help_Interval * 4,
-							Help_FontSize, None, self)
-				if self.ProfileMode:
-					DrawLeftText("[" + self.carver_prefs.Key_Subadd + "][" + self.carver_prefs.Key_Subrem + "]",
-								xHelp, yHelp - Help_Interval * 5, Help_FontSize, UIColor, self)
-					DrawLeftText(": Previous or Next Profile", 150 + t_panel_width,
-								 yHelp - Help_Interval * 5, Help_FontSize, None, self)
-				DrawLeftText("[ARROWS]", xHelp, yHelp - Help_Interval * 6, Help_FontSize, UIColor, self)
-				DrawLeftText(": Create / Delete rows or columns", 150 + t_panel_width,
-							yHelp - Help_Interval * 6, Help_FontSize, None, self)
-				DrawLeftText("[" + self.carver_prefs.Key_Gapy + "][" + self.carver_prefs.Key_Gapx + "]",
-							 xHelp, yHelp - Help_Interval * 7, Help_FontSize, UIColor, self)
-				DrawLeftText(": Gap between rows or columns", 150 + t_panel_width,
-							yHelp - Help_Interval * 7, Help_FontSize, None, self)
+				help_txt +=[
+					   ["Difference", "Space"],\
+					   ["Rebool", "Shift + Space"],\
+					   ["Duplicate", "Alt + Space"],\
+					   ["Scale", self.carver_prefs.Key_Scale],\
+					   ["Rotation", "LMB + Move"],\
+					   ["Step Angle", "CTRL + LMB + Move"],\
+					   ]
 
+				if self.ProfileMode:
+					help_txt +=[["Previous or Next Profile", self.carver_prefs.Key_Subadd + " " + self.carver_prefs.Key_Subrem]]
+
+				help_txt +=[
+					   ["Create / Delete rows",  chr(8597)],\
+					   ["Create / Delete cols",  chr(8596)],\
+					   ["Gap for rows or columns",  self.carver_prefs.Key_Gapy + " " + self.carver_prefs.Key_Gapx]
+					   ]
+
+			help_txt, bloc_height, max_option, max_key, comma = draw_help(self, context, help_txt)
+			blf.size(0, int(round(15, 0)), 72)
+			draw_string(self, color1, color2, xHelp, yHelp, help_txt, max_option)
 
 	if self.ProfileMode:
 		xrect = region.width - t_panel_width - 80
@@ -515,7 +395,7 @@ def draw_callback_px(self, context):
 			if self.shift or self.CreateMode:
 				draw_shader(self, UIColor, 0.5, 'TRIS', circle_coords, self.carver_prefs.LineWidth, indices=indices)
 
-	if self.ObjectMode or self.ProfileMode:
+	if (self.ObjectMode or self.ProfileMode) and len(self.CurrentSelection) > 0:
 		if self.ShowCursor:
 			region = context.region
 			rv3d = context.space_data.region_3d
@@ -530,6 +410,7 @@ def draw_callback_px(self, context):
 			bgl.glEnable(bgl.GL_BLEND)
 
 			bbox = [mat @ Vector(b) for b in ob.bound_box]
+			objBBDiagonal = objDiagonal(self.CurrentSelection[0])
 
 			if self.shift:
 				gl_line_width = 4
@@ -548,8 +429,8 @@ def draw_callback_px(self, context):
 				if vector2d is not None:
 					line_coords.append((vector2d[0], vector2d[1]))
 				idx += 1
-
-			draw_shader(self, UIColor, 1.0, 'LINE_LOOP', line_coords, gl_line_width)
+			if len(line_coords) > 0 :
+				draw_shader(self, UIColor, 1.0, 'LINE_LOOP', line_coords, gl_line_width)
 
 			# Object display
 			if self.quat_rot is not None:
@@ -580,5 +461,3 @@ def draw_callback_px(self, context):
 	# Opengl defaults
 	bgl.glLineWidth(1)
 	bgl.glDisable(bgl.GL_BLEND)
-	# bgl.color(font_id, 0.0, 0.0, 0.0, 1.0)
-	# bgl.glDisable(bgl.GL_POINT_SMOOTH)

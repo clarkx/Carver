@@ -438,8 +438,8 @@ def update_bevel(context):
 							active.data.edges[i].use_edge_sharp = True
 
 					Already = False
-					for m in active.modifiers:
-						if m.name == 'Bevel':
+					for modifier in active.modifiers:
+						if modifier.name == 'Bevel':
 							Already = True
 
 					if Already is False:
@@ -499,7 +499,6 @@ def CreateBevel(context, CurrentObject):
 		if m.name == 'Bevel':
 			Already = True
 
-	# print("ALREADY: ", Already)
 	if Already is False:
 		bpy.ops.object.modifier_add(type='BEVEL')
 		mod = context.object.modifiers[-1]
@@ -549,16 +548,16 @@ def MoveCursor(qRot, location, self):
 			idx += 1
 
 
-def rot_axis_quat(Object, Dir):
-	#Normal de la face de l'objet
-	ObjectV = Object.normalized()
-	#Direction dans laquelle je pointe
-	DirV = Dir.normalized()
-	cosTheta = ObjectV.dot(DirV)
+def rot_axis_quat(vector1, vector2):
+	""" Find the rotation (quaternion) from vector 1 to vector 2"""
+	vector1 = vector1.normalized()
+	vector2 = vector2.normalized()
+	cosTheta = vector1.dot(vector2)
 	rotationAxis = Vector((0.0, 0.0, 0.0))
 	if (cosTheta < -1 + 0.001):
 		v = Vector((0.0, 1.0, 0.0))
-		rotationAxis = ObjectV.cross(v)
+		#Get the vector at the right angles to both
+		rotationAxis = vector1.cross(v)
 		rotationAxis = rotationAxis.normalized()
 		q = Quaternion()
 		q.w = 0.0
@@ -566,7 +565,7 @@ def rot_axis_quat(Object, Dir):
 		q.y = rotationAxis.y
 		q.z = rotationAxis.z
 	else:
-		rotationAxis = ObjectV.cross(DirV)
+		rotationAxis = vector1.cross(vector2)
 		s = math.sqrt((1.0 + cosTheta) * 2.0)
 		invs = 1 / s
 		q = Quaternion()
@@ -805,7 +804,7 @@ def duplicateObject(self):
 
 	if len(bpy.context.selected_objects) > 0:
 		bpy.ops.object.select_all(action='TOGGLE')
-	for o in self.SavSel:
+	for o in self.all_sel_obj_list:
 		o.select_set(True)
 
 	bpy.context.view_layer.objects.active = self.OpsObj
@@ -938,7 +937,7 @@ def Rebool(context, self):
 			exc_type, exc_value, exc_traceback = sys.exc_info()
 			self.report({'ERROR'}, str(exc_value))
 
-	if self.DontApply is False:
+	if self.dont_apply_boolean is False:
 		try:
 			bpy.ops.object.modifier_apply(apply_as='DATA', modifier="CT_INTERSECT")
 		except:
@@ -953,7 +952,7 @@ def Rebool(context, self):
 
 	context.view_layer.objects.active = target_obj
 	target_obj.select_set(True)
-	if self.DontApply is False:
+	if self.dont_apply_boolean is False:
 		try:
 			bpy.ops.object.modifier_apply(apply_as='DATA', modifier="CT_DIFFERENCE")
 		except:
@@ -971,6 +970,7 @@ def createMeshFromData(self):
 		me = bpy.data.meshes.new(self.Profils[self.nProfil][0])
 		# Create mesh from given verts, faces.
 		me.from_pydata(self.Profils[self.nProfil][2], [], self.Profils[self.nProfil][3])
+		me.validate(verbose=True, clean_customdata=True)
 		# Update mesh with new data
 		me.update()
 
@@ -979,10 +979,8 @@ def createMeshFromData(self):
 		ob.location = Vector((0.0, 0.0, 0.0))
 
 		# Link object to scene and make active
-		# scn = bpy.context.scene
 		bpy.context.collection.objects.link(ob)
 		bpy.context.scene.update()
-		# scn.objects.link(ob)
 		bpy.context.view_layer.objects.active = ob
 		ob.select_set(True)
 		ob.location = Vector((10000.0, 0.0, 0.0))
@@ -999,20 +997,21 @@ def Selection_Save_Restore(self):
 		bpy.ops.object.select_all(action='DESELECT')
 		bpy.data.objects["CT_Profil"].select_set(True)
 		bpy.context.view_layer.objects.active = bpy.data.objects["CT_Profil"]
-		if bpy.data.objects["CT_Profil"] in self.SavSel:
-			self.SavSel.remove(bpy.data.objects["CT_Profil"])
+		if bpy.data.objects["CT_Profil"] in self.all_sel_obj_list:
+			# print("CT_PROFIL: ", self.all_sel_obj_list)
+			self.all_sel_obj_list.remove(bpy.data.objects["CT_Profil"])
 		bpy.ops.object.delete(use_global=False)
 		Selection_Restore(self)
 
 
 def Selection_Save(self):
 	obj_name = getattr(bpy.context.active_object, "name", None)
-	self.SavSel = bpy.context.selected_objects.copy()
-	self.Sav_ac = obj_name
+	self.all_sel_obj_list = bpy.context.selected_objects.copy()
+	self.save_active_obj = obj_name
 
 
 def Selection_Restore(self):
-	for o in self.SavSel:
+	for o in self.all_sel_obj_list:
 		o.select_set(True)
-	if self.Sav_ac:
-		bpy.context.view_layer.objects.active = bpy.data.objects.get(self.Sav_ac, None)
+	if self.save_active_obj:
+		bpy.context.view_layer.objects.active = bpy.data.objects.get(self.save_active_obj, None)

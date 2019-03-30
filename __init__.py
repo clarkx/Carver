@@ -46,18 +46,19 @@ imp.reload(carver_draw)
 from . import carver_operator
 imp.reload(carver_operator)
 
+#Add an icon in the toolbar
 class CarverTool(WorkSpaceTool):
     bl_space_type='VIEW_3D'
     bl_context_mode='OBJECT'
-
-    # The prefix of the idname should be your add-on name.
     bl_idname = "carver.operator"
     bl_label = "Carver"
     bl_description = (
         "Multiple tools to carve \n"
         "or to create objects"
     )
+
 	#Icons : \blender-2.80\2.80\datafiles\icons
+	#Todo: Create a new icon for Carver
     bl_icon = "ops.mesh.knife_tool"
     bl_widget = None
     bl_keymap = (
