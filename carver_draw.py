@@ -10,6 +10,11 @@ from math import(
 	sin,
 	)
 
+from bpy_extras.view3d_utils import (
+	region_2d_to_location_3d,
+	location_3d_to_region_2d,
+)
+
 from .carver_utils import (
 	draw_circle,
 	draw_shader,
@@ -23,7 +28,7 @@ from mathutils import (
 	Quaternion,
 )
 
-def draw_help(self, context, help_txt):
+def get_text_info(self, context, help_txt):
 	""" Return the dimensions of each part of the text """
 
 	#Extract the longest first option in sublist
@@ -90,6 +95,10 @@ def draw_callback_px(self, context):
 	# Color
 	color1 = (1.0, 1.0, 1.0, 1.0)
 	color2 = UIColor
+
+	#The mouse is outside the active region
+	if not self.in_view_3d:
+		color1 = color2 = (1.0, 0.2, 0.1, 1.0)
 
 	# Primitives type
 	PrimitiveType = "Rectangle "
@@ -211,7 +220,7 @@ def draw_callback_px(self, context):
 			BoolStr = str(round(self.BrushDepthOffset, 2))
 			help_txt += [[TypeStr, BoolStr]]
 
-	help_txt, bloc_height, max_option, max_key, comma = draw_help(self, context, help_txt)
+	help_txt, bloc_height, max_option, max_key, comma = get_text_info(self, context, help_txt)
 	xt = xt - (max_option + max_key + comma ) / 2
 	draw_string(self, color1, color2, xt, yCmd, help_txt, max_option, divide = 2)
 
@@ -248,12 +257,10 @@ def draw_callback_px(self, context):
 				if self.CreateMode is False:
 					help_txt +=[
 						   ["Create geometry", self.carver_prefs.Key_Create],\
-						   ["Move Cursor", "Ctrl + LMB"]
 						   ]
 				else:
 					help_txt +=[
 						   ["Cut", self.carver_prefs.Key_Create],\
-						   ["Move Cursor", "Ctrl + LMB"]
 						   ]
 				if self.CutMode == RECTANGLE:
 					help_txt +=[
@@ -299,7 +306,7 @@ def draw_callback_px(self, context):
 					   ["Gap for rows or columns",  self.carver_prefs.Key_Gapy + " " + self.carver_prefs.Key_Gapx]
 					   ]
 
-			help_txt, bloc_height, max_option, max_key, comma = draw_help(self, context, help_txt)
+			help_txt, bloc_height, max_option, max_key, comma = get_text_info(self, context, help_txt)
 			blf.size(0, int(round(15, 0)), 72)
 			draw_string(self, color1, color2, xHelp, yHelp, help_txt, max_option)
 
@@ -309,7 +316,7 @@ def draw_callback_px(self, context):
 		coords = [(xrect, yrect), (xrect+60, yrect), (xrect+60, yrect-60), (xrect, yrect-60)]
 
 		#Draw rectangle background in the lower right
-		draw_shader(self, (0.0, 0.0, 0.0),  0.3, 'TRI_FAN', coords, self.carver_prefs.LineWidth)
+		draw_shader(self, (0.0, 0.0, 0.0),  0.3, 'TRI_FAN', coords, size=self.carver_prefs.LineWidth)
 
 		WidthProfil = 50
 		location = Vector((region.width - t_panel_width - WidthProfil, 50, 0))
@@ -330,7 +337,7 @@ def draw_callback_px(self, context):
 			])
 
 		#Draw the silhouette of the mesh
-		draw_shader(self, UIColor,  0.5, 'TRIS', coords, self.carver_prefs.LineWidth, indices=indices)
+		draw_shader(self, UIColor,  0.5, 'TRIS', coords, size=self.carver_prefs.LineWidth, indices=indices)
 
 
 	if self.CutMode:
@@ -349,17 +356,16 @@ def draw_callback_px(self, context):
 			(x0 + self.xpos, y0 + self.ypos)]
 			indices = ((0, 1, 2), (2, 0, 3))
 
-			draw_shader(self, UIColor, 1, 'LINE_LOOP', coords, self.carver_prefs.LineWidth)
+			draw_shader(self, UIColor, 1, 'LINE_LOOP', coords, size=self.carver_prefs.LineWidth)
 
 			#Draw points
-			draw_shader(self, UIColor, 1, 'POINTS', coords, self.carver_prefs.LineWidth)
+			draw_shader(self, UIColor, 1, 'POINTS', coords, size=3)
 
 			if self.shift or self.CreateMode:
-				draw_shader(self, UIColor, 0.5, 'TRIS', coords, self.carver_prefs.LineWidth, indices=indices)
+				draw_shader(self, UIColor, 0.5, 'TRIS', coords, size=self.carver_prefs.LineWidth, indices=indices)
 
 		# Cut Line
 		elif self.CutType == LINE:
-
 			coords = []
 			indices = []
 
@@ -368,14 +374,66 @@ def draw_callback_px(self, context):
 				indices.append([idx])
 
 			#Draw lines
-			draw_shader(self, UIColor, 1.0, 'LINE_LOOP', coords, self.carver_prefs.LineWidth)
+			draw_shader(self, UIColor, 1.0, 'LINE_LOOP', coords, size=self.carver_prefs.LineWidth)
 
 			#Draw points
-			draw_shader(self, UIColor, 1.0, 'POINTS', coords, self.carver_prefs.LineWidth)
+			draw_shader(self, UIColor, 1.0, 'POINTS', coords, size=3)
 
 			#Draw polygon
 			if (self.shift) or (self.CreateMode and self.Closed):
-				draw_shader(self, UIColor, 0.5, 'TRI_FAN', coords, self.carver_prefs.LineWidth)
+				draw_shader(self, UIColor, 0.5, 'TRI_FAN', coords, size=self.carver_prefs.LineWidth)
+
+			#Draw grid (based on the overlay options) to show the incremental snapping
+			if self.ctrl:
+
+				# Get the context arguments
+				region = context.region
+				rv3d = context.region_data
+
+				space = context.screen.areas[4].spaces.active
+
+				#Draw the snap grid, only in ortho view
+				if not space.region_3d.is_perspective:
+					grid_scale = space.overlay.grid_scale
+					grid_subdivisions = space.overlay.grid_subdivisions
+					increment = (grid_scale / grid_subdivisions)
+
+					# Get the 3d location of the mouse
+					coord = self.mouse_path[len(self.mouse_path) - 1]
+					snap_loc = loc = region_2d_to_location_3d(region, rv3d, coord, (0, 0, 0))
+
+					# Add the increment to get the closest location on the grid
+					snap_loc[0] = loc[0] + increment
+					snap_loc[1] = loc[1] + increment
+
+					# Get the 2d location of the snap location
+					snap_loc = location_3d_to_region_2d(region, rv3d, snap_loc)
+
+					# Get the increment value
+					snap_value = snap_loc[0] - coord[0]
+
+					grid_coords = []
+					last_coord = self.mouse_path[len(self.mouse_path) - 1]
+
+					grid_coords = [
+					(last_coord[0], last_coord[1] + 50 + snap_value),
+					(last_coord[0], last_coord[1] - 50 - snap_value),
+					(last_coord[0] + 50 + snap_value, last_coord[1]),
+					(last_coord[0] - 50 - snap_value, last_coord[1]),
+					]
+					draw_shader(self, UIColor, 0.4, 'LINES', grid_coords, size=2)
+
+					grid_coords = [
+					(last_coord[0] + snap_value, last_coord[1] + 25 + snap_value),
+					(last_coord[0] + snap_value, last_coord[1] - 25 - snap_value),
+					(last_coord[0] + 25 + snap_value, last_coord[1] + snap_value),
+					(last_coord[0] - 25 - snap_value, last_coord[1] + snap_value),
+					(last_coord[0] - snap_value, last_coord[1] + 25 + snap_value),
+					(last_coord[0] - snap_value, last_coord[1] - 25 - snap_value),
+					(last_coord[0] + 25 + snap_value, last_coord[1] - snap_value),
+					(last_coord[0] - 25 - snap_value, last_coord[1] - snap_value),
+					]
+					draw_shader(self, UIColor, 0.3, 'LINES', grid_coords, size=2)
 
 		# Circle Cut
 		elif self.CutType == CIRCLE:
@@ -390,10 +448,10 @@ def draw_callback_px(self, context):
 				rotate_circle = (self.mouse_path[1][1] - self.mouse_path[0][1]) / 50
 
 			circle_coords, line_coords, indices = draw_circle(self, x0, y0)
-			draw_shader(self, UIColor, 1.0, 'LINE_LOOP', line_coords, self.carver_prefs.LineWidth)
+			draw_shader(self, UIColor, 1.0, 'LINE_LOOP', line_coords, size=self.carver_prefs.LineWidth)
 
 			if self.shift or self.CreateMode:
-				draw_shader(self, UIColor, 0.5, 'TRIS', circle_coords, self.carver_prefs.LineWidth, indices=indices)
+				draw_shader(self, UIColor, 0.5, 'TRIS', circle_coords, size=self.carver_prefs.LineWidth, indices=indices)
 
 	if (self.ObjectMode or self.ProfileMode) and len(self.CurrentSelection) > 0:
 		if self.ShowCursor:
@@ -413,10 +471,10 @@ def draw_callback_px(self, context):
 			objBBDiagonal = objDiagonal(self.CurrentSelection[0])
 
 			if self.shift:
-				gl_line_width = 4
+				gl_size = 4
 				UIColor = (0.5, 1.0, 0.0, 1.0)
 			else:
-				gl_line_width = 2
+				gl_size = 2
 				UIColor = (1.0, 0.8, 0.0, 1.0)
 
 			line_coords = []
@@ -430,7 +488,7 @@ def draw_callback_px(self, context):
 					line_coords.append((vector2d[0], vector2d[1]))
 				idx += 1
 			if len(line_coords) > 0 :
-				draw_shader(self, UIColor, 1.0, 'LINE_LOOP', line_coords, gl_line_width)
+				draw_shader(self, UIColor, 1.0, 'LINE_LOOP', line_coords, size=gl_size)
 
 			# Object display
 			if self.quat_rot is not None:

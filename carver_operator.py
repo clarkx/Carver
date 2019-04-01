@@ -1,4 +1,5 @@
 import bpy
+import bpy_extras
 import sys
 from bpy.props import (
 	BoolProperty,
@@ -11,6 +12,12 @@ from mathutils import (
 	Vector,
 	)
 
+from bpy_extras.view3d_utils import (
+	region_2d_to_vector_3d,
+	region_2d_to_origin_3d,
+	region_2d_to_location_3d,
+	location_3d_to_region_2d,
+)
 from .carver_profils import (
 	Profils
 	)
@@ -43,9 +50,6 @@ from .carver_utils import (
 	)
 
 from .carver_draw import draw_callback_px
-class Bunch:
-	def __init__(self, **kwds):
-		self.__dict__.update(kwds)
 
 # Modal Operator
 class CARVER_OT_operator(bpy.types.Operator):
@@ -58,8 +62,15 @@ class CARVER_OT_operator(bpy.types.Operator):
 		context = bpy.context
 		# Carve mode: Cut, Object, Profile
 		self.CutMode = False
+		self.CreateMode = False
 		self.ObjectMode = False
 		self.ProfileMode = False
+
+		# Create mode
+		self.ExclusiveCreateMode = False
+		if len(context.selected_objects) == 0:
+			self.ExclusiveCreateMode = True
+			self.CreateMode = True
 
 		# Cut type (Rectangle, Circle, Line)
 		self.rectangle = 0
@@ -118,12 +129,7 @@ class CARVER_OT_operator(bpy.types.Operator):
 		# Working object
 		self.OpsObj = context.active_object
 
-		# Create mode
-		self.CreateMode = False
-		self.ExclusiveCreateMode = False
-		if len(context.selected_objects) == 0:
-			self.ExclusiveCreateMode = True
-			self.CreateMode = True
+
 
 		# Rebool forced (cut line)
 		self.ForceRebool = False
@@ -208,6 +214,8 @@ class CARVER_OT_operator(bpy.types.Operator):
 		region_types = {'WINDOW', 'UI'}
 		win = context.window
 
+		# Find the limit of the view3d region
+		self.check_region(context,event)
 
 		for area in win.screen.areas:
 			if area.type in ('VIEW_3D'):
@@ -215,11 +223,26 @@ class CARVER_OT_operator(bpy.types.Operator):
 					if not region_types or region.type in region_types:
 						region.tag_redraw()
 
+		# Change the increment value using the wheel mouse
+		if self.CutMode:
+			if self.alt is False:
+				if self.ctrl and (self.CutType == self.line):
+					space = context.screen.areas[4].spaces.active
+					grid_scale = space.overlay.grid_scale
+					grid_subdivisions = space.overlay.grid_subdivisions
+
+					if event.type == 'WHEELUPMOUSE':
+						 space.overlay.grid_subdivisions += 1
+					elif event.type == 'WHEELDOWNMOUSE':
+						 space.overlay.grid_subdivisions -= 1
+					self.Increment = grid_scale / (grid_scale / grid_subdivisions)
+
 		if event.type in {
 				'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE',
 				'NUMPAD_1', 'NUMPAD_2', 'NUMPAD_3', 'NUMPAD_4', 'NUMPAD_6',
 				'NUMPAD_7', 'NUMPAD_8', 'NUMPAD_9', 'NUMPAD_5'}:
 			return {'PASS_THROUGH'}
+
 		try:
 			# [Shift]
 			self.shift = True if event.shift else False
@@ -547,8 +570,7 @@ class CARVER_OT_operator(bpy.types.Operator):
 						Undo(self)
 
 			# Mouse move
-			if event.type == 'MOUSEMOVE':
-
+			if event.type == 'MOUSEMOVE' :
 				if self.ObjectMode or self.ProfileMode:
 					fac = 50.0
 					if self.shift:
@@ -640,29 +662,48 @@ class CARVER_OT_operator(bpy.types.Operator):
 										self.CurLoc = target_hit
 				else:
 					if self.CutMode:
-
 						if self.alt is False:
-							if self.CutMode:
-								if self.ctrl and (self.CutType == self.line):
-									# Incremental mode
-									coord = list(self.mouse_path[len(self.mouse_path) - 1])
-									coord[0] = int(
-												self.mouse_path[len(self.mouse_path) - 2][0] +
-												int((event.mouse_region_x -
-													self.mouse_path[len(self.mouse_path) - 2][0]
-													) / self.Increment) * self.Increment
-												)
-									coord[1] = int(
-												self.mouse_path[len(self.mouse_path) - 2][1] +
-												int((event.mouse_region_y -
-													self.mouse_path[len(self.mouse_path) - 2][1]
-													) / self.Increment) * self.Increment
-												)
-									self.mouse_path[len(self.mouse_path) - 1] = tuple(coord)
-								else:
-									if len(self.mouse_path) > 0:
-										self.mouse_path[len(self.mouse_path) -
-														1] = (event.mouse_region_x, event.mouse_region_y)
+							if self.ctrl and (self.CutType == self.line):
+
+								# get the context arguments
+								region = context.region
+								rv3d = context.region_data
+
+								# Get the grid overlay for the VIEW_3D (areas[4])
+								space = context.screen.areas[4].spaces.active
+								grid_scale = space.overlay.grid_scale
+								grid_subdivisions = space.overlay.grid_subdivisions
+
+								# Use the grid scale and subdivision to get the increment
+								increment = (grid_scale / grid_subdivisions)
+								half_increment = increment / 2
+
+								# Convert the 2d location of the mouse in 3d
+								mouse_loc_2d = event.mouse_region_x, event.mouse_region_y
+								mouse_loc_3d = region_2d_to_location_3d(region, rv3d, mouse_loc_2d, (0, 0, 0))
+
+								# Get the remainder from the mouse location and the ratio
+								# Test if the remainder > to the half of the increment
+								for i in range(3):
+									modulo = mouse_loc_3d[i] % increment
+									if modulo < half_increment:
+										modulo = - modulo
+									else:
+										modulo = increment - modulo
+
+									# Add the remainder to get the closest location on the grid
+									mouse_loc_3d[i] = mouse_loc_3d[i] + modulo
+
+								# Get the snapped 2d location
+								snap_loc_2d = location_3d_to_region_2d(region, rv3d, mouse_loc_3d)
+
+								# Replace the the last mouse location by the snapped location
+								self.mouse_path[len(self.mouse_path) - 1] = tuple(snap_loc_2d)
+
+							else:
+								if len(self.mouse_path) > 0:
+									self.mouse_path[len(self.mouse_path) -
+													1] = (event.mouse_region_x, event.mouse_region_y)
 						else:
 							# [ALT] press, update position
 							self.xpos += (event.mouse_region_x - self.last_mouse_region_x)
@@ -689,7 +730,7 @@ class CARVER_OT_operator(bpy.types.Operator):
 					self.LMB = True
 
 			# LEFTMOUSE
-			elif event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
+			elif event.type == 'LEFTMOUSE' and event.value == 'RELEASE' and self.in_view_3d:
 				if self.ObjectMode or self.ProfileMode:
 					# Rotation and scale
 					self.LMB = False
@@ -715,6 +756,7 @@ class CARVER_OT_operator(bpy.types.Operator):
 					if self.CutMode is False:
 						if self.ctrl:
 							Picking(context, event)
+
 						else:
 							if self.CutType == self.line:
 								if self.CutMode is False:
@@ -990,6 +1032,23 @@ class CARVER_OT_operator(bpy.types.Operator):
 
 		context.window_manager.modal_handler_add(self)
 		return {'RUNNING_MODAL'}
+
+	#Get the region area where the operator is used
+	def check_region(self,context,event):
+		if context.area != None:
+			if context.area.type == "VIEW_3D" :
+				t_panel = context.area.regions[1]
+				n_panel = context.area.regions[2]
+				view_3d_region_x = Vector((context.area.x + t_panel.width, context.area.x + context.area.width - n_panel.width))
+				view_3d_region_y = Vector((context.region.y, context.region.y+context.region.height))
+
+				if (event.mouse_x > view_3d_region_x[0] and event.mouse_x < view_3d_region_x[1] \
+				and event.mouse_y > view_3d_region_y[0] and event.mouse_y < view_3d_region_y[1]):
+					self.in_view_3d = True
+				else:
+					self.in_view_3d = False
+			else:
+				self.in_view_3d = False
 
 	def CreateGeometry(self):
 		context = bpy.context

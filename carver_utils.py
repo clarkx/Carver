@@ -13,6 +13,9 @@ from mathutils import (
 	Vector,
 	Quaternion,
 )
+from mathutils.geometry import (
+	intersect_line_plane,
+)
 
 import bpy_extras
 
@@ -21,76 +24,6 @@ from bpy_extras.view3d_utils import (
 	region_2d_to_vector_3d,
 	region_2d_to_location_3d,
 )
-
-
-# Intersection
-# intersection function (ideasman42)
-def isect_line_plane_v3(p0, p1, p_co, p_no, epsilon=1e-6):
-	"""
-	p0, p1: define the line
-	p_co, p_no: define the plane:
-		p_co is a point on the plane (plane coordinate).
-		p_no is a normal vector defining the plane direction; does not need to be normalized.
-
-	return a Vector or None (when the intersection can't be found).
-	"""
-
-	u = sub_v3v3(p1, p0)
-	dot = dot_v3v3(p_no, u)
-
-	if abs(dot) > epsilon:
-		# the factor of the point between p0 -> p1 (0 - 1)
-		# if 'fac' is between (0 - 1) the point intersects with the segment.
-		# otherwise:
-		#  < 0.0: behind p0.
-		#  > 1.0: infront of p1.
-		w = sub_v3v3(p0, p_co)
-		fac = -dot_v3v3(p_no, w) / dot
-		u = mul_v3_fl(u, fac)
-		return add_v3v3(p0, u)
-	else:
-		# The segment is parallel to plane
-		return None
-
-
-# ----------------------
-# generic math functions
-
-def add_v3v3(v0, v1):
-	return (
-		v0[0] + v1[0],
-		v0[1] + v1[1],
-		v0[2] + v1[2],
-	)
-
-
-def sub_v3v3(v0, v1):
-	return (
-		v0[0] - v1[0],
-		v0[1] - v1[1],
-		v0[2] - v1[2],
-	)
-
-
-def dot_v3v3(v0, v1):
-	return (
-		(v0[0] * v1[0]) +
-		(v0[1] * v1[1]) +
-		(v0[2] * v1[2])
-	)
-
-
-def len_squared_v3(v0):
-	return dot_v3v3(v0, v0)
-
-
-def mul_v3_fl(v0, f):
-	return (
-		v0[0] * f,
-		v0[1] * f,
-		v0[2] * f,
-	)
-
 
 # Cut Square
 def CreateCutSquare(self, context):
@@ -142,16 +75,16 @@ def CreateCutSquare(self, context):
 	loc3 = region_2d_to_location_3d(region, rv3d, v3, vec)
 	p0 = loc0
 	p1 = loc0 + PlaneNormalised * FAR_LIMIT
-	loc0 = isect_line_plane_v3(p0, p1, PlanePoint, PlaneNormalised)
+	loc0 = intersect_line_plane(p0, p1, PlanePoint, PlaneNormalised)
 	p0 = loc1
 	p1 = loc1 + PlaneNormalised * FAR_LIMIT
-	loc1 = isect_line_plane_v3(p0, p1, PlanePoint, PlaneNormalised)
+	loc1 = intersect_line_plane(p0, p1, PlanePoint, PlaneNormalised)
 	p0 = loc2
 	p1 = loc2 + PlaneNormalised * FAR_LIMIT
-	loc2 = isect_line_plane_v3(p0, p1, PlanePoint, PlaneNormalised)
+	loc2 = intersect_line_plane(p0, p1, PlanePoint, PlaneNormalised)
 	p0 = loc3
 	p1 = loc3 + PlaneNormalised * FAR_LIMIT
-	loc3 = isect_line_plane_v3(p0, p1, PlanePoint, PlaneNormalised)
+	loc3 = intersect_line_plane(p0, p1, PlanePoint, PlaneNormalised)
 
 	t_v0 = t_bm.verts.new(loc0)
 	t_v1 = t_bm.verts.new(loc2)
@@ -194,7 +127,6 @@ def CreateCutLine(self, context):
 	NbVertices = 0
 
 	bLine = False
-
 	if (len(self.mouse_path) == 2) or ((len(self.mouse_path) <= 3) and
 			(self.mouse_path[1] == self.mouse_path[2])):
 		PlanePoint = Vector((0.0, 0.0, 0.0))
@@ -213,7 +145,7 @@ def CreateCutLine(self, context):
 
 				p0 = loc0
 				p1 = loc0 + PlaneNormalised * FAR_LIMIT
-				loc0 = isect_line_plane_v3(p0, p1, PlanePoint, PlaneNormalised)
+				loc0 = intersect_line_plane(p0, p1, PlanePoint, PlaneNormalised)
 
 				NbVertices += 1
 				Index += 1
@@ -234,7 +166,7 @@ def CreateCutLine(self, context):
 
 			p0 = loc0
 			p1 = loc0 + PlaneNormalised * FAR_LIMIT
-			loc0 = isect_line_plane_v3(p0, p1, PlanePoint, PlaneNormalised)
+			loc0 = intersect_line_plane(p0, p1, PlanePoint, PlaneNormalised)
 
 			NbVertices += 1
 			if NbVertices == 1:
@@ -295,10 +227,13 @@ def draw_circle(self, x0, y0):
 
 	return(iner_verts, outer_verts, indices)
 
-def draw_shader(self, color, alpha, type, coords, line_width=1, indices=None):
+def draw_shader(self, color, alpha, type, coords, size=1, indices=None):
 	bgl.glEnable(bgl.GL_BLEND)
 	bgl.glEnable(bgl.GL_LINE_SMOOTH)
-	bgl.glLineWidth(line_width)
+	if type =='POINTS':
+		bgl.glPointSize(size)
+	else:
+		bgl.glLineWidth(size)
 	try:
 		if len(coords[0])>2:
 			shader = gpu.shader.from_builtin('3D_UNIFORM_COLOR')
@@ -309,6 +244,7 @@ def draw_shader(self, color, alpha, type, coords, line_width=1, indices=None):
 		shader.uniform_float("color", (color[0], color[1], color[2], alpha))
 		batch.draw(shader)
 		bgl.glLineWidth(1)
+		bgl.glPointSize(1)
 		bgl.glDisable(bgl.GL_LINE_SMOOTH)
 		bgl.glDisable(bgl.GL_BLEND)
 	except:
@@ -365,7 +301,7 @@ def CreateCutCircle(self, context):
 
 		p0 = loc0
 		p1 = loc0 + PlaneNormalised * FAR_LIMIT
-		loc0 = isect_line_plane_v3(p0, p1, PlanePoint, PlaneNormalised)
+		loc0 = intersect_line_plane(p0, p1, PlanePoint, PlaneNormalised)
 
 		t_v0 = t_bm.verts.new(loc0)
 
@@ -673,7 +609,6 @@ def Pick(context, event, self, ray_max=10000.0):
 
 	return None, None, None
 
-
 def SelectObject(self, copyobj):
 	copyobj.select_set(True)
 
@@ -682,7 +617,6 @@ def SelectObject(self, copyobj):
 
 	if copyobj.parent is None:
 		bpy.context.view_layer.objects.active = copyobj
-
 
 # Undo
 def printUndo(self):
@@ -963,7 +897,6 @@ def Rebool(context, self):
 
 	rebool_obj.select_set(True)
 
-
 def createMeshFromData(self):
 	if self.Profils[self.nProfil][0] not in bpy.data.meshes:
 		# Create mesh and object
@@ -990,7 +923,6 @@ def createMeshFromData(self):
 	else:
 		bpy.data.objects["CT_Profil"].data = bpy.data.meshes[self.Profils[self.nProfil][0]]
 
-
 def Selection_Save_Restore(self):
 	if "CT_Profil" in bpy.data.objects:
 		Selection_Save(self)
@@ -998,11 +930,9 @@ def Selection_Save_Restore(self):
 		bpy.data.objects["CT_Profil"].select_set(True)
 		bpy.context.view_layer.objects.active = bpy.data.objects["CT_Profil"]
 		if bpy.data.objects["CT_Profil"] in self.all_sel_obj_list:
-			# print("CT_PROFIL: ", self.all_sel_obj_list)
 			self.all_sel_obj_list.remove(bpy.data.objects["CT_Profil"])
 		bpy.ops.object.delete(use_global=False)
 		Selection_Restore(self)
-
 
 def Selection_Save(self):
 	obj_name = getattr(bpy.context.active_object, "name", None)

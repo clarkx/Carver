@@ -35,8 +35,6 @@ from bpy.props import *
 from bpy.types import (AddonPreferences, WorkSpaceTool)
 from bpy.utils.toolsystem import ToolDef
 
-# from . import carver_preferences
-# imp.reload(carver_preferences)
 from . import carver_utils
 imp.reload(carver_utils)
 from . import carver_profils
