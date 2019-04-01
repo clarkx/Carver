@@ -390,7 +390,10 @@ def draw_callback_px(self, context):
 				region = context.region
 				rv3d = context.region_data
 
-				space = context.screen.areas[4].spaces.active
+				# Get the VIEW3D area
+				for i, a in enumerate(context.screen.areas):
+					if a.type == 'VIEW_3D':
+						space = context.screen.areas[i].spaces.active
 
 				#Draw the snap grid, only in ortho view
 				if not space.region_3d.is_perspective:

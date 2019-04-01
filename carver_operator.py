@@ -227,7 +227,10 @@ class CARVER_OT_operator(bpy.types.Operator):
 		if self.CutMode:
 			if self.alt is False:
 				if self.ctrl and (self.CutType == self.line):
-					space = context.screen.areas[4].spaces.active
+					# Get the VIEW3D area
+					for i, a in enumerate(context.screen.areas):
+						if a.type == 'VIEW_3D':
+							space = context.screen.areas[i].spaces.active
 					grid_scale = space.overlay.grid_scale
 					grid_subdivisions = space.overlay.grid_subdivisions
 
@@ -670,7 +673,10 @@ class CARVER_OT_operator(bpy.types.Operator):
 								rv3d = context.region_data
 
 								# Get the grid overlay for the VIEW_3D (areas[4])
-								space = context.screen.areas[4].spaces.active
+								# Get the VIEW3D area
+								for i, a in enumerate(context.screen.areas):
+									if a.type == 'VIEW_3D':
+										space = context.screen.areas[i].spaces.active
 								grid_scale = space.overlay.grid_scale
 								grid_subdivisions = space.overlay.grid_subdivisions
 
