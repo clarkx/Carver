@@ -24,4 +24,6 @@ Done :
     - Use wheel up/down of the mouse to controle the scale of the snap
     - work only in ortho mode
     
+  - Add a check_region function:
+    - In cut mode, it was possible to draw outside the 3dView. Now, if the cursor is outside the 3dView, the draw mode is blocked and the opengl will be red.
   
