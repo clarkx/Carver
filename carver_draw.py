@@ -394,6 +394,8 @@ def draw_callback_px(self, context):
 				for i, a in enumerate(context.screen.areas):
 					if a.type == 'VIEW_3D':
 						space = context.screen.areas[i].spaces.active
+						screen_height = context.screen.areas[i].height
+						screen_width = context.screen.areas[i].width						
 
 				#Draw the snap grid, only in ortho view
 				if not space.region_3d.is_perspective:
@@ -418,12 +420,17 @@ def draw_callback_px(self, context):
 					grid_coords = []
 					last_coord = self.mouse_path[len(self.mouse_path) - 1]
 
+					# grid_coords = [
+					# (last_coord[0], last_coord[1] + 50 + snap_value),
+					# (last_coord[0], last_coord[1] - 50 - snap_value),
+					# (last_coord[0] + 50 + snap_value, last_coord[1]),
+					# (last_coord[0] - 50 - snap_value, last_coord[1]),
+					# ]
 					grid_coords = [
-					(last_coord[0], last_coord[1] + 50 + snap_value),
-					(last_coord[0], last_coord[1] - 50 - snap_value),
-					(last_coord[0] + 50 + snap_value, last_coord[1]),
-					(last_coord[0] - 50 - snap_value, last_coord[1]),
+					(0, last_coord[1]), (screen_width, last_coord[1]),
+					(last_coord[0], 0), (last_coord[0], screen_height)
 					]
+					
 					draw_shader(self, UIColor, 0.4, 'LINES', grid_coords, size=2)
 
 					grid_coords = [
