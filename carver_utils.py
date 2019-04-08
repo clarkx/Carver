@@ -23,12 +23,12 @@ from bpy_extras import view3d_utils
 from bpy_extras.view3d_utils import (
 	region_2d_to_vector_3d,
 	region_2d_to_location_3d,
+	location_3d_to_region_2d,
 )
 
 # Cut Square
 def CreateCutSquare(self, context):
-	FAR_LIMIT = 10000.0
-
+	far_limit = 10000.0
 	# New mesh
 	me = bpy.data.meshes.new('CMT_Square')
 	# New object
@@ -41,160 +41,103 @@ def CreateCutSquare(self, context):
 	rv3d = context.region_data
 	coord = self.mouse_path[0][0], self.mouse_path[0][1]
 
-	depthLocation = region_2d_to_vector_3d(region, rv3d, coord)
-	self.ViewVector = depthLocation
-	if self.snapCursor:
-		PlanePoint = context.scene.cursor.location
-	else:
-		PlanePoint = self.OpsObj.location if self.OpsObj is not None else Vector((0.0, 0.0, 0.0))
+	depth_location = region_2d_to_vector_3d(region, rv3d, coord)
+	self.ViewVector = depth_location
 
-	PlaneNormal = depthLocation
-	PlaneNormalised = PlaneNormal.normalized()
+	if self.snapCursor:
+		plane_point = context.scene.cursor.location
+	else:
+		plane_point = self.OpsObj.location if self.OpsObj is not None else Vector((0.0, 0.0, 0.0))
+
+	plane_normal = depth_location
+	plane_normalised = plane_normal.normalized()
 
 	# Link object to scene
 	context.collection.objects.link(ob)
 
 	# New bmesh
-	t_bm = bmesh.new()
-	t_bm.from_mesh(me)
+	bm = bmesh.new()
+	bm.from_mesh(me)
+
 	# Convert in 3d space
-	v0 = self.mouse_path[0][0] + self.xpos, self.mouse_path[0][1] + self.ypos
-	v1 = self.mouse_path[1][0] + self.xpos, self.mouse_path[1][1] + self.ypos
-	v2 = self.mouse_path[1][0] + self.xpos, self.mouse_path[0][1] + self.ypos
-	v3 = self.mouse_path[0][0] + self.xpos, self.mouse_path[1][1] + self.ypos
-	vec = region_2d_to_vector_3d(region, rv3d, v0)
-	loc0 = region_2d_to_location_3d(region, rv3d, v0, vec)
-
-	vec = region_2d_to_vector_3d(region, rv3d, v1)
-	loc1 = region_2d_to_location_3d(region, rv3d, v1, vec)
-
-	vec = region_2d_to_vector_3d(region, rv3d, v2)
-	loc2 = region_2d_to_location_3d(region, rv3d, v2, vec)
-
-	vec = region_2d_to_vector_3d(region, rv3d, v3)
-	loc3 = region_2d_to_location_3d(region, rv3d, v3, vec)
-	p0 = loc0
-	p1 = loc0 + PlaneNormalised * FAR_LIMIT
-	loc0 = intersect_line_plane(p0, p1, PlanePoint, PlaneNormalised)
-	p0 = loc1
-	p1 = loc1 + PlaneNormalised * FAR_LIMIT
-	loc1 = intersect_line_plane(p0, p1, PlanePoint, PlaneNormalised)
-	p0 = loc2
-	p1 = loc2 + PlaneNormalised * FAR_LIMIT
-	loc2 = intersect_line_plane(p0, p1, PlanePoint, PlaneNormalised)
-	p0 = loc3
-	p1 = loc3 + PlaneNormalised * FAR_LIMIT
-	loc3 = intersect_line_plane(p0, p1, PlanePoint, PlaneNormalised)
-
-	t_v0 = t_bm.verts.new(loc0)
-	t_v1 = t_bm.verts.new(loc2)
-	t_v2 = t_bm.verts.new(loc1)
-	t_v3 = t_bm.verts.new(loc3)
+	faces=[]
+	for v_co in self.rectangle_coord:
+		vec = region_2d_to_vector_3d(region, rv3d, v_co)
+		p0 = region_2d_to_location_3d(region, rv3d,v_co, vec)
+		p1 = region_2d_to_location_3d(region, rv3d,v_co, vec) + plane_normalised * far_limit
+		faces.append(bm.verts.new(intersect_line_plane(p0, p1, plane_point, plane_normalised)))
 
 	# Update vertices index
-	t_bm.verts.index_update()
+	bm.verts.index_update()
 	# New faces
-	t_face = t_bm.faces.new([t_v0, t_v1, t_v2, t_v3])
+	t_face = bm.faces.new(faces)
 	# Set mesh
-	t_bm.to_mesh(me)
+	bm.to_mesh(me)
 
 
 # Cut Line
 def CreateCutLine(self, context):
-	FAR_LIMIT = 10000.0
-
+	far_limit = 10000.0
+	# New mesh
 	me = bpy.data.meshes.new('CMT_Line')
-
+	# New object
 	ob = bpy.data.objects.new('CMT_Line', me)
+	# Save new object
 	self.CurrentObj = ob
-
+	# Scene information
 	region = context.region
 	rv3d = context.region_data
 	coord = self.mouse_path[0][0], self.mouse_path[0][1]
-	depthLocation = region_2d_to_vector_3d(region, rv3d, coord)
-	self.ViewVector = depthLocation
 
-	PlanePoint = context.scene.cursor.location if self.snapCursor else Vector((0.0, 0.0, 0.0))
-	PlaneNormal = depthLocation
-	PlaneNormalised = PlaneNormal.normalized()
+	depth_location = region_2d_to_vector_3d(region, rv3d, coord)
+	self.ViewVector = depth_location
 
+	if self.snapCursor:
+		plane_point = context.scene.cursor.location
+	else:
+		plane_point = self.OpsObj.location if self.OpsObj is not None else Vector((0.0, 0.0, 0.0))
+
+	plane_normal = depth_location
+	plane_normalised = plane_normal.normalized()
+
+	# Link object to scene
 	context.collection.objects.link(ob)
 
-	t_bm = bmesh.new()
-	t_bm.from_mesh(me)
+	bm = bmesh.new()
+	bm.from_mesh(me)
 
-	FacesList = []
-	NbVertices = 0
+	vertices = []
+	faces = []
+	loc = []
 
-	bLine = False
-	if (len(self.mouse_path) == 2) or ((len(self.mouse_path) <= 3) and
-			(self.mouse_path[1] == self.mouse_path[2])):
-		PlanePoint = Vector((0.0, 0.0, 0.0))
-		PlaneNormal = depthLocation
-		PlaneNormalised = PlaneNormal.normalized()
-		# Force rebool
-		self.ForceRebool = True
-		# It's a line
-		bLine = True
-		Index = 0
-		for x, y in self.mouse_path:
-			if Index < 2:
-				v0 = x + self.xpos, y + self.ypos
-				vec = region_2d_to_vector_3d(region, rv3d, v0)
-				loc0 = region_2d_to_location_3d(region, rv3d, v0, vec)
+	# Use dict to remove doubles
+	for idx, v_co in enumerate(list(dict.fromkeys(self.mouse_path))):
+		vec = region_2d_to_vector_3d(region, rv3d, v_co)
+		p0 = region_2d_to_location_3d(region, rv3d,v_co, vec)
+		p1 = region_2d_to_location_3d(region, rv3d,v_co, vec) + plane_normalised * far_limit
+		loc.append(intersect_line_plane(p0, p1, plane_point, plane_normalised))
+		vertices.append(bm.verts.new(loc[idx]))
 
-				p0 = loc0
-				p1 = loc0 + PlaneNormalised * FAR_LIMIT
-				loc0 = intersect_line_plane(p0, p1, PlanePoint, PlaneNormalised)
+		if idx > 0:
+			bm.edges.new([vertices[idx-1],vertices[idx]])
 
-				NbVertices += 1
-				Index += 1
-				if NbVertices == 1:
-					t_v0 = t_bm.verts.new(loc0)
-					LocInit = loc0
-					t_bm.verts.index_update()
-				else:
-					t_v1 = t_bm.verts.new(loc0)
-					t_edges = t_bm.edges.new([t_v0, t_v1])
-					NbVertices = 1
-					t_v0 = t_v1
-	else:
-		for x, y in self.mouse_path:
-			v0 = x + self.xpos, y + self.ypos
-			vec = region_2d_to_vector_3d(region, rv3d, v0)
-			loc0 = region_2d_to_location_3d(region, rv3d, v0, vec)
+		faces.append(vertices[idx])
 
-			p0 = loc0
-			p1 = loc0 + PlaneNormalised * FAR_LIMIT
-			loc0 = intersect_line_plane(p0, p1, PlanePoint, PlaneNormalised)
+	# Update vertices index
+	bm.verts.index_update()
 
-			NbVertices += 1
-			if NbVertices == 1:
-				t_v0 = t_bm.verts.new(loc0)
-				LocInit = loc0
-				t_bm.verts.index_update()
-				FacesList.append(t_v0)
-			else:
-				t_v1 = t_bm.verts.new(loc0)
-				t_edges = t_bm.edges.new([t_v0, t_v1])
-				FacesList.append(t_v1)
-				NbVertices = 1
-				t_v0 = t_v1
-
+	# Nothing is selected, create geometry
 	if self.CreateMode:
-		if self.Closed and (bLine is False):
-			t_v1 = t_bm.verts.new(LocInit)
-			t_edges = t_bm.edges.new([t_v0, t_v1])
-			FacesList.append(t_v1)
-			t_face = t_bm.faces.new(FacesList)
+		if self.Closed and len(vertices) > 1:
+			bm.edges.new([vertices[-1], vertices[0]])
+			bm.faces.new(faces)
 	else:
-		if bLine is False:
-			t_v1 = t_bm.verts.new(LocInit)
-			t_edges = t_bm.edges.new([t_v0, t_v1])
-			FacesList.append(t_v1)
-			t_face = t_bm.faces.new(FacesList)
+		# Only if more than 2 vertices
+		if len(vertices) > 1 :
+			bm.edges.new([vertices[-1], vertices[0]])
+			bm.faces.new(faces)
 
-	t_bm.to_mesh(me)
+	bm.to_mesh(me)
 
 def draw_circle(self, x0, y0):
 	iner_verts = []
@@ -254,7 +197,7 @@ def draw_shader(self, color, alpha, type, coords, size=1, indices=None):
 
 # Cut Circle
 def CreateCutCircle(self, context):
-	FAR_LIMIT = 10000.0
+	far_limit = 10000.0
 
 	me = bpy.data.meshes.new('CMT_Circle')
 
@@ -264,17 +207,17 @@ def CreateCutCircle(self, context):
 	region = context.region
 	rv3d = context.region_data
 	coord = self.mouse_path[0][0], self.mouse_path[0][1]
-	depthLocation = region_2d_to_vector_3d(region, rv3d, coord)
-	self.ViewVector = depthLocation
+	depth_location = region_2d_to_vector_3d(region, rv3d, coord)
+	self.ViewVector = depth_location
 
-	PlanePoint = context.scene.cursor.location if self.snapCursor else Vector((0.0, 0.0, 0.0))
-	PlaneNormal = depthLocation
-	PlaneNormalised = PlaneNormal.normalized()
+	plane_point = context.scene.cursor.location if self.snapCursor else Vector((0.0, 0.0, 0.0))
+	plane_normal = depth_location
+	plane_normalised = plane_normal.normalized()
 
 	context.collection.objects.link(ob)
 
-	t_bm = bmesh.new()
-	t_bm.from_mesh(me)
+	bm = bmesh.new()
+	bm.from_mesh(me)
 
 	x0 = self.mouse_path[0][0]
 	y0 = self.mouse_path[0][1]
@@ -300,17 +243,17 @@ def CreateCutCircle(self, context):
 		loc0 = region_2d_to_location_3d(region, rv3d, v0, vec)
 
 		p0 = loc0
-		p1 = loc0 + PlaneNormalised * FAR_LIMIT
-		loc0 = intersect_line_plane(p0, p1, PlanePoint, PlaneNormalised)
+		p1 = loc0 + plane_normalised * far_limit
+		loc0 = intersect_line_plane(p0, p1, plane_point, plane_normalised)
 
-		t_v0 = t_bm.verts.new(loc0)
+		t_v0 = bm.verts.new(loc0)
 
 		FacesList.append(t_v0)
 
-	t_bm.verts.index_update()
-	t_face = t_bm.faces.new(FacesList)
+	bm.verts.index_update()
+	t_face = bm.faces.new(FacesList)
 
-	t_bm.to_mesh(me)
+	bm.to_mesh(me)
 
 
 # Object dimensions (SCULPT Tools tips)
@@ -514,6 +457,8 @@ def rot_axis_quat(vector1, vector2):
 
 # Picking (template)
 def Picking(context, event):
+	""" Put the 3d cursor on the closest object"""
+
 	# get the context arguments
 	scene = context.scene
 	region = context.region
@@ -534,8 +479,6 @@ def Picking(context, event):
 			else:  # Usual object
 				obj = dup.object.original
 				yield (obj, obj.matrix_world.copy())
-
-
 
 	def obj_ray_cast(obj, matrix):
 		# get the ray relative to the object
@@ -566,8 +509,8 @@ def Picking(context, event):
 					best_obj = obj
 			else:
 				if best_obj is None:
-					depthLocation = region_2d_to_vector_3d(region, rv3d, coord)
-					loc = region_2d_to_location_3d(region, rv3d, coord, depthLocation)
+					depth_location = region_2d_to_vector_3d(region, rv3d, coord)
+					loc = region_2d_to_location_3d(region, rv3d, coord, depth_location)
 					scene.cursor.location = loc
 
 
@@ -945,3 +888,100 @@ def Selection_Restore(self):
 		o.select_set(True)
 	if self.save_active_obj:
 		bpy.context.view_layer.objects.active = bpy.data.objects.get(self.save_active_obj, None)
+
+def Snap_Cursor(self, context, event, mouse_pos):
+	""" Find the closest position on the overlay grid and snap the mouse on it """
+
+	# Get the context arguments
+	region = context.region
+	rv3d = context.region_data
+
+	# Get the VIEW3D area
+	for i, a in enumerate(context.screen.areas):
+		if a.type == 'VIEW_3D':
+			space = context.screen.areas[i].spaces.active
+
+	# Get the grid overlay for the VIEW_3D
+	grid_scale = space.overlay.grid_scale
+	grid_subdivisions = space.overlay.grid_subdivisions
+
+	# Use the grid scale and subdivision to get the increment
+	increment = (grid_scale / grid_subdivisions)
+	half_increment = increment / 2
+
+	# Convert the 2d location of the mouse in 3d
+	for index, loc in enumerate(reversed(mouse_pos)):
+		mouse_loc_3d = region_2d_to_location_3d(region, rv3d, loc, (0, 0, 0))
+
+		# Get the remainder from the mouse location and the ratio
+		# Test if the remainder > to the half of the increment
+		for i in range(3):
+			modulo = mouse_loc_3d[i] % increment
+			if modulo < half_increment:
+				modulo = - modulo
+			else:
+				modulo = increment - modulo
+
+			# Add the remainder to get the closest location on the grid
+			mouse_loc_3d[i] = mouse_loc_3d[i] + modulo
+
+		# Get the snapped 2d location
+		snap_loc_2d = location_3d_to_region_2d(region, rv3d, mouse_loc_3d)
+
+		# Replace the last mouse location by the snapped location
+		self.mouse_path[len(self.mouse_path) - (index + 1) ] = tuple(snap_loc_2d)
+
+def Mini_Grid(self, context, color):
+	""" Draw a mini grid around the cursor """
+	# Get the context arguments
+	region = context.region
+	rv3d = context.region_data
+
+	# Get the VIEW3D area
+	for i, a in enumerate(context.screen.areas):
+		if a.type == 'VIEW_3D':
+			space = context.screen.areas[i].spaces.active
+			screen_height = context.screen.areas[i].height
+			screen_width = context.screen.areas[i].width
+
+	#Draw the snap grid, only in ortho view
+	if not space.region_3d.is_perspective:
+		grid_scale = space.overlay.grid_scale
+		grid_subdivisions = space.overlay.grid_subdivisions
+		increment = (grid_scale / grid_subdivisions)
+
+		# Get the 3d location of the mouse forced to a snap value in the operator
+		mouse_coord = self.mouse_path[len(self.mouse_path) - 1]
+		snap_loc = region_2d_to_location_3d(region, rv3d, mouse_coord, (0, 0, 0))
+
+		# Add the increment to get the closest location on the grid
+		snap_loc[0] += increment
+		snap_loc[1] += increment
+
+		# Get the 2d location of the snap location
+		snap_loc = location_3d_to_region_2d(region, rv3d, snap_loc)
+		origin = location_3d_to_region_2d(region, rv3d, (0,0,0))
+
+		# Get the increment value
+		snap_value = snap_loc[0] - mouse_coord[0]
+
+		grid_coords = []
+
+		# Draw lines on X and Z axis from the cursor through the screen
+		grid_coords = [
+		(0, mouse_coord[1]), (screen_width, mouse_coord[1]),
+		(mouse_coord[0], 0), (mouse_coord[0], screen_height)
+		]
+
+		# Draw a mlini grid around the cursor to show the snap options
+		grid_coords += [
+		(mouse_coord[0] + snap_value, mouse_coord[1] + 25 + snap_value),
+		(mouse_coord[0] + snap_value, mouse_coord[1] - 25 - snap_value),
+		(mouse_coord[0] + 25 + snap_value, mouse_coord[1] + snap_value),
+		(mouse_coord[0] - 25 - snap_value, mouse_coord[1] + snap_value),
+		(mouse_coord[0] - snap_value, mouse_coord[1] + 25 + snap_value),
+		(mouse_coord[0] - snap_value, mouse_coord[1] - 25 - snap_value),
+		(mouse_coord[0] + 25 + snap_value, mouse_coord[1] - snap_value),
+		(mouse_coord[0] - 25 - snap_value, mouse_coord[1] - snap_value),
+		]
+		draw_shader(self, color, 0.3, 'LINES', grid_coords, size=2)

@@ -44,27 +44,28 @@ imp.reload(carver_draw)
 from . import carver_operator
 imp.reload(carver_operator)
 
-#Add an icon in the toolbar
-class CarverTool(WorkSpaceTool):
-    bl_space_type='VIEW_3D'
-    bl_context_mode='OBJECT'
-    bl_idname = "carver.operator"
-    bl_label = "Carver"
-    bl_description = (
-        "Multiple tools to carve \n"
-        "or to create objects"
-    )
-
-	#Icons : \blender-2.80\2.80\datafiles\icons
-	#Todo: Create a new icon for Carver
-    bl_icon = "ops.mesh.knife_tool"
-    bl_widget = None
-    bl_keymap = (
-        ("carver.operator", {"type": 'LEFTMOUSE', "value": 'PRESS'}, None),
-    	)
-
-    def draw_settings(context, layout, tool):
-        layout.prop(tool.operator_properties, "carver")
+# TODO : Create an icon for Carver MT
+# Add an icon in the toolbar
+# class CarverTool(WorkSpaceTool):
+#     bl_space_type='VIEW_3D'
+#     bl_context_mode='OBJECT'
+#     bl_idname = "carver.operator"
+#     bl_label = "Carver"
+#     bl_description = (
+#         "Multiple tools to carve \n"
+#         "or to create objects"
+#     )
+#
+# 	#Icons : \blender-2.80\2.80\datafiles\icons
+# 	#Todo: Create a new icon for Carver
+#     bl_icon = "ops.mesh.knife_tool"
+#     bl_widget = None
+#     bl_keymap = (
+#         ("carver.operator", {"type": 'LEFTMOUSE', "value": 'PRESS'}, None),
+#     	)
+#
+#     def draw_settings(context, layout, tool):
+#         layout.prop(tool.operator_properties, "carver")
 
 
 class CarverPreferences(AddonPreferences):
@@ -258,15 +259,14 @@ class CarverPreferences(AddonPreferences):
 			col.prop(self, "Key_Subrem", text="")
 
 
-
 addon_keymaps = []
-
 
 def register():
 	print("Registered Carver")
 
 	bpy.utils.register_class(CarverPreferences)
-	bpy.utils.register_tool(CarverTool, separator=True, group=True)
+	# Todo : Add an icon in the toolbat
+	# bpy.utils.register_tool(CarverTool, separator=True, group=True)
 	carver_operator.register()
 
 	# add keymap entry
@@ -277,7 +277,8 @@ def register():
 		addon_keymaps.append((km, kmi))
 
 def unregister():
-	bpy.utils.unregister_tool(CarverTool)
+	# Todo : Add an icon in the toolbat
+	# bpy.utils.unregister_tool(CarverTool)
 	carver_operator.unregister()
 	bpy.utils.unregister_class(CarverPreferences)
 

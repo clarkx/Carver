@@ -8,6 +8,8 @@ from gpu_extras.batch import batch_for_shader
 from math import(
 	cos,
 	sin,
+	ceil,
+	floor,
 	)
 
 from bpy_extras.view3d_utils import (
@@ -19,6 +21,7 @@ from .carver_utils import (
 	draw_circle,
 	draw_shader,
 	objDiagonal,
+	Mini_Grid,
 	)
 
 from mathutils import (
@@ -59,8 +62,8 @@ def draw_string(self, color1, color2, left, bottom, text, max_option, divide = 1
 	blf.shadow_offset(font_id,2,-2)
 	line_height = (blf.dimensions(font_id, "gM")[1] * 1.45)
 	y_offset = 5
-	left_save = left
 
+	# Test if the text is formated like : ('option', 'key')
 	if isinstance(text,list):
 		for string in text:
 			blf.position(font_id, (left), (bottom + y_offset), 0)
@@ -71,12 +74,13 @@ def draw_string(self, color1, color2, left, bottom, text, max_option, divide = 1
 			blf.color(font_id, *color2)
 			blf.position(font_id, (left + max_option + 15), (bottom + y_offset), 0)
 			blf.draw(font_id, string[1])
-			y_offset -= line_height
+			y_offset += line_height
 	else:
+		# The text is formated like : ('option')
 		blf.position(font_id, left, (bottom + y_offset), 0)
 		blf.color(font_id, *color1)
 		blf.draw(font_id, text)
-		y_offset -= line_height
+		y_offset += line_height
 
 	blf.disable(font_id,blf.SHADOW)
 
@@ -101,11 +105,11 @@ def draw_callback_px(self, context):
 		color1 = color2 = (1.0, 0.2, 0.1, 1.0)
 
 	# Primitives type
-	PrimitiveType = "Rectangle "
+	PrimitiveType = "Rectangle"
 	if self.CutType == CIRCLE:
-		PrimitiveType = "Circle "
+		PrimitiveType = "Circle"
 	if self.CutType == LINE:
-		PrimitiveType = "Line "
+		PrimitiveType = "Line"
 
 	# Width screen
 	overlap = context.preferences.system.use_region_overlap
@@ -117,57 +121,26 @@ def draw_callback_px(self, context):
 				t_panel_width = region.width
 
 	# Initial position
-	xt = int(region.width / 2.0)
-	yt = 130
-	yCmd = yt - 30
-	if region.width >= 850:
-		xt = int(region.width / 2.0)
-		yt = 150
+	region_width = int(region.width / 2.0)
+	y_txt = 10
 
-	# Command Display
-	if self.CreateMode and ((self.ObjectMode is False) and (self.ProfileMode is False)):
-		BooleanMode = "Create"
-	else:
-		if self.ObjectMode or self.ProfileMode:
-			BooleanType = "Difference) [T]" if self.BoolOps == self.difference else "Union) [T]"
-			BooleanMode = \
-				"Object Brush (" + BooleanType if self.ObjectMode else "Profil Brush (" + BooleanType
-		else:
-			BooleanMode = \
-				"Difference" if (self.shift is False) and (self.ForceRebool is False) else "Rebool"
 
-	# Display boolean mode
-	text_size = 40 if region.width >= 850 else 20
-	blf.size(0, text_size, 72)
+	# Draw the center command from bottom to top
 
-	draw_string(self, color2, color2, xt - (blf.dimensions(0, BooleanMode)[0]) / 2, yt, BooleanMode, 0, divide = 2)
-
-	# Separator (Line)
-	LineWidth = 75
-	if region.width >= 850:
-		LineWidth = 140
-
-	coords = [(int(xt - LineWidth), yt - 8), (int(xt + LineWidth), yt - 8)]
-	draw_shader(self, UIColor, 1, 'LINES', coords, self.carver_prefs.LineWidth)
-
-	#Get the size of the text
+	# Get the size of the text
 	text_size = 18 if region.width >= 850 else 12
-	blf.size(0, int(round(text_size, 0)), 72)
+	blf.size(0, int(round(text_size * bpy.context.preferences.view.ui_scale, 0)), 72)
 
 	# Help Display
 	if (self.ObjectMode is False) and (self.ProfileMode is False):
-		if self.CreateMode:
-			help_txt = [["Type [Space]", PrimitiveType]]
-		else:
-			help_txt = [["Cut Type [Space]", PrimitiveType]]
 
 		#Depth Cursor
 		TypeStr = "Cursor Depth [" + self.carver_prefs.Key_Depth + "]"
 		BoolStr = "(ON)" if self.snapCursor else "(OFF)"
-		help_txt += [[TypeStr, BoolStr]]
+		help_txt = [[TypeStr, BoolStr]]
 
 		#Close poygonal shape
-		if self.CreateMode:
+		if self.CreateMode and self.CutType == LINE:
 			TypeStr = "Close [" + self.carver_prefs.Key_Close + "]"
 			BoolStr = "(ON)" if self.Closed else "(OFF)"
 			help_txt += [[TypeStr, BoolStr]]
@@ -188,6 +161,11 @@ def draw_callback_px(self, context):
 			TypeStr = "Subdivisions [" + self.carver_prefs.Key_Subrem + "][" + self.carver_prefs.Key_Subadd + "]"
 			BoolStr = str((int(360 / self.stepAngle[self.step])))
 			help_txt += [[TypeStr, BoolStr]]
+
+		if self.CreateMode:
+			help_txt += [["Type [Space]", PrimitiveType]]
+		else:
+			help_txt += [["Cut Type [Space]", PrimitiveType]]
 
 	else:
 		#Instantiate
@@ -221,25 +199,60 @@ def draw_callback_px(self, context):
 			help_txt += [[TypeStr, BoolStr]]
 
 	help_txt, bloc_height, max_option, max_key, comma = get_text_info(self, context, help_txt)
-	xt = xt - (max_option + max_key + comma ) / 2
-	draw_string(self, color1, color2, xt, yCmd, help_txt, max_option, divide = 2)
+	xCmd = region_width - (max_option + max_key + comma) / 2
+	draw_string(self, color1, color2, xCmd, y_txt, help_txt, max_option, divide = 2)
+
+
+	# Separator (Line)
+	LineWidth = (max_option + max_key + comma) / 2
+	if region.width >= 850:
+		LineWidth = 140
+
+	LineWidth = (max_option + max_key + comma)
+	coords = [(int(region_width - LineWidth/2), y_txt + bloc_height + 8), \
+			  (int(region_width + LineWidth/2), y_txt + bloc_height + 8)]
+	draw_shader(self, UIColor, 1, 'LINES', coords, self.carver_prefs.LineWidth)
+
+	# Command Display
+	if self.CreateMode and ((self.ObjectMode is False) and (self.ProfileMode is False)):
+		BooleanMode = "Create"
+	else:
+		if self.ObjectMode or self.ProfileMode:
+			BooleanType = "Difference) [T]" if self.BoolOps == self.difference else "Union) [T]"
+			BooleanMode = \
+				"Object Brush (" + BooleanType if self.ObjectMode else "Profil Brush (" + BooleanType
+		else:
+			BooleanMode = \
+				"Difference" if (self.shift is False) and (self.ForceRebool is False) else "Rebool"
+
+	# Display boolean mode
+	text_size = 40 if region.width >= 850 else 20
+	blf.size(0, int(round(text_size * bpy.context.preferences.view.ui_scale, 0)), 72)
+
+	draw_string(self, color2, color2, region_width - (blf.dimensions(0, BooleanMode)[0]) / 2, \
+				y_txt + bloc_height + 16, BooleanMode, 0, divide = 2)
 
 	if region.width >= 850:
 
 		if self.AskHelp is False:
-			#Draw a rectangle and put the text "H for Help"
+			# "H for Help" text
+			blf.size(0, int(round(13 * bpy.context.preferences.view.ui_scale, 0)), 72)
+			help_txt = "[" + self.carver_prefs.Key_Help + "] for help"
+			txt_width = blf.dimensions(0, help_txt)[0]
+			txt_height = (blf.dimensions(0, "gM")[1] * 1.45)
+
+			# Draw a rectangle and put the text "H for Help"
 			xrect = 40
 			yrect = 40
-			rect_vertices = [(xrect, yrect), (xrect+90, yrect), (xrect+90, yrect+25), (xrect, yrect+25)]
+			rect_vertices = [(xrect - 5, yrect - 5), (xrect + txt_width + 5, yrect - 5), \
+							 (xrect + txt_width + 5, yrect + txt_height + 5), (xrect - 5, yrect + txt_height + 5)]
 			draw_shader(self, (0.0, 0.0, 0.0),  0.3, 'TRI_FAN', rect_vertices, self.carver_prefs.LineWidth)
-			help_txt = "[" + self.carver_prefs.Key_Help + "] for help"
-			blf.size(0, int(round(13, 0)), 72)
-			draw_string(self, color1, color2, xrect+10, yrect+5, help_txt, 0)
+			draw_string(self, color1, color2, xrect, yrect, help_txt, 0)
 
 		else:
 			#Draw the help text
 			xHelp = 30 + t_panel_width
-			yHelp = 220
+			yHelp = 10
 
 			if self.ObjectMode or self.ProfileMode:
 				if self.ProfileMode:
@@ -284,10 +297,12 @@ def draw_callback_px(self, context):
 						   ["Dimension", "MouseMove"],\
 						   ["Move all", "Alt"],\
 						   ["Validate", "Space"],\
-						   ["Incremental", "Ctrl"],\
-						   ["Rebool", "Shift"]
+						   ["Rebool", "Shift"],\
+						   ["Snap", "Ctrl"],\
+						   ["Scale Snap", "WheelMouse"],\
 						   ]
 			else:
+				# ObjectMode
 				help_txt +=[
 					   ["Difference", "Space"],\
 					   ["Rebool", "Shift + Space"],\
@@ -306,8 +321,8 @@ def draw_callback_px(self, context):
 					   ["Gap for rows or columns",  self.carver_prefs.Key_Gapy + " " + self.carver_prefs.Key_Gapx]
 					   ]
 
+			blf.size(0, int(round(15 * bpy.context.preferences.view.ui_scale, 0)), 72)
 			help_txt, bloc_height, max_option, max_key, comma = get_text_info(self, context, help_txt)
-			blf.size(0, int(round(15, 0)), 72)
 			draw_string(self, color1, color2, xHelp, yHelp, help_txt, max_option)
 
 	if self.ProfileMode:
@@ -315,9 +330,10 @@ def draw_callback_px(self, context):
 		yrect = 80
 		coords = [(xrect, yrect), (xrect+60, yrect), (xrect+60, yrect-60), (xrect, yrect-60)]
 
-		#Draw rectangle background in the lower right
+		# Draw rectangle background in the lower right
 		draw_shader(self, (0.0, 0.0, 0.0),  0.3, 'TRI_FAN', coords, size=self.carver_prefs.LineWidth)
 
+		# Use numpy to get the vertices and indices of the profile object to draw
 		WidthProfil = 50
 		location = Vector((region.width - t_panel_width - WidthProfil, 50, 0))
 		ProfilScale = 20.0
@@ -352,9 +368,11 @@ def draw_callback_px(self, context):
 		if self.CutType == RECTANGLE:
 			coords = [
 			(x0 + self.xpos, y0 + self.ypos), (x1 + self.xpos, y0 + self.ypos), \
-			(x1 + self.xpos, y1 + self.ypos), (x0 + self.xpos, y1 + self.ypos), \
-			(x0 + self.xpos, y0 + self.ypos)]
+			(x1 + self.xpos, y1 + self.ypos), (x0 + self.xpos, y1 + self.ypos)
+			]
 			indices = ((0, 1, 2), (2, 0, 3))
+
+			self.rectangle_coord = coords
 
 			draw_shader(self, UIColor, 1, 'LINE_LOOP', coords, size=self.carver_prefs.LineWidth)
 
@@ -364,86 +382,36 @@ def draw_callback_px(self, context):
 			if self.shift or self.CreateMode:
 				draw_shader(self, UIColor, 0.5, 'TRIS', coords, size=self.carver_prefs.LineWidth, indices=indices)
 
+			# Draw grid (based on the overlay options) to show the incremental snapping
+			if self.ctrl:
+				Mini_Grid(self, context, UIColor)
+				
 		# Cut Line
 		elif self.CutType == LINE:
 			coords = []
 			indices = []
+			top_grid = False
 
 			for idx, vals in enumerate(self.mouse_path):
 				coords.append([vals[0] + self.xpos, vals[1] + self.ypos])
 				indices.append([idx])
 
-			#Draw lines
-			draw_shader(self, UIColor, 1.0, 'LINE_LOOP', coords, size=self.carver_prefs.LineWidth)
+			# Draw lines
+			if self.Closed:
+				draw_shader(self, UIColor, 1.0, 'LINE_LOOP', coords, size=self.carver_prefs.LineWidth)
+			else:
+				draw_shader(self, UIColor, 1.0, 'LINE_STRIP', coords, size=self.carver_prefs.LineWidth)
 
-			#Draw points
+			# Draw points
 			draw_shader(self, UIColor, 1.0, 'POINTS', coords, size=3)
 
-			#Draw polygon
+			# Draw polygon
 			if (self.shift) or (self.CreateMode and self.Closed):
 				draw_shader(self, UIColor, 0.5, 'TRI_FAN', coords, size=self.carver_prefs.LineWidth)
 
-			#Draw grid (based on the overlay options) to show the incremental snapping
+			# Draw grid (based on the overlay options) to show the incremental snapping
 			if self.ctrl:
-
-				# Get the context arguments
-				region = context.region
-				rv3d = context.region_data
-
-				# Get the VIEW3D area
-				for i, a in enumerate(context.screen.areas):
-					if a.type == 'VIEW_3D':
-						space = context.screen.areas[i].spaces.active
-						screen_height = context.screen.areas[i].height
-						screen_width = context.screen.areas[i].width						
-
-				#Draw the snap grid, only in ortho view
-				if not space.region_3d.is_perspective:
-					grid_scale = space.overlay.grid_scale
-					grid_subdivisions = space.overlay.grid_subdivisions
-					increment = (grid_scale / grid_subdivisions)
-
-					# Get the 3d location of the mouse
-					coord = self.mouse_path[len(self.mouse_path) - 1]
-					snap_loc = loc = region_2d_to_location_3d(region, rv3d, coord, (0, 0, 0))
-
-					# Add the increment to get the closest location on the grid
-					snap_loc[0] = loc[0] + increment
-					snap_loc[1] = loc[1] + increment
-
-					# Get the 2d location of the snap location
-					snap_loc = location_3d_to_region_2d(region, rv3d, snap_loc)
-
-					# Get the increment value
-					snap_value = snap_loc[0] - coord[0]
-
-					grid_coords = []
-					last_coord = self.mouse_path[len(self.mouse_path) - 1]
-
-					# grid_coords = [
-					# (last_coord[0], last_coord[1] + 50 + snap_value),
-					# (last_coord[0], last_coord[1] - 50 - snap_value),
-					# (last_coord[0] + 50 + snap_value, last_coord[1]),
-					# (last_coord[0] - 50 - snap_value, last_coord[1]),
-					# ]
-					grid_coords = [
-					(0, last_coord[1]), (screen_width, last_coord[1]),
-					(last_coord[0], 0), (last_coord[0], screen_height)
-					]
-					
-					draw_shader(self, UIColor, 0.4, 'LINES', grid_coords, size=2)
-
-					grid_coords = [
-					(last_coord[0] + snap_value, last_coord[1] + 25 + snap_value),
-					(last_coord[0] + snap_value, last_coord[1] - 25 - snap_value),
-					(last_coord[0] + 25 + snap_value, last_coord[1] + snap_value),
-					(last_coord[0] - 25 - snap_value, last_coord[1] + snap_value),
-					(last_coord[0] - snap_value, last_coord[1] + 25 + snap_value),
-					(last_coord[0] - snap_value, last_coord[1] - 25 - snap_value),
-					(last_coord[0] + 25 + snap_value, last_coord[1] - snap_value),
-					(last_coord[0] - 25 - snap_value, last_coord[1] - snap_value),
-					]
-					draw_shader(self, UIColor, 0.3, 'LINES', grid_coords, size=2)
+				Mini_Grid(self, context, UIColor)
 
 		# Circle Cut
 		elif self.CutType == CIRCLE:

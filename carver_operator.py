@@ -25,7 +25,6 @@ from .carver_profils import (
 from .carver_utils import (
 	duplicateObject,
 	UndoListUpdate,
-	CreateCutLine,
 	createMeshFromData,
 	SelectObject,
 	Selection_Save_Restore,
@@ -47,6 +46,7 @@ from .carver_utils import (
 	update_bevel,
 	CreateBevel,
 	Rebool,
+	Snap_Cursor,
 	)
 
 from .carver_draw import draw_callback_px
@@ -76,6 +76,9 @@ class CARVER_OT_operator(bpy.types.Operator):
 		self.rectangle = 0
 		self.line = 1
 		self.circle = 2
+
+		# Cut Rectangle coordinates
+		self.rectangle_coord = []
 
 		# Selected type of cut
 		self.CutType = 0
@@ -113,9 +116,6 @@ class CARVER_OT_operator(bpy.types.Operator):
 		self.xpos = 0
 		self.ypos = 0
 		self.InitPosition = False
-
-		# Line Increment
-		self.Increment = 15
 
 		# Close polygonal shape
 		self.Closed = False
@@ -226,7 +226,7 @@ class CARVER_OT_operator(bpy.types.Operator):
 		# Change the increment value using the wheel mouse
 		if self.CutMode:
 			if self.alt is False:
-				if self.ctrl and (self.CutType == self.line):
+				if self.ctrl and (self.CutType in (self.line, self.rectangle)):
 					# Get the VIEW3D area
 					for i, a in enumerate(context.screen.areas):
 						if a.type == 'VIEW_3D':
@@ -238,7 +238,6 @@ class CARVER_OT_operator(bpy.types.Operator):
 						 space.overlay.grid_subdivisions += 1
 					elif event.type == 'WHEELDOWNMOUSE':
 						 space.overlay.grid_subdivisions -= 1
-					self.Increment = grid_scale / (grid_scale / grid_subdivisions)
 
 		if event.type in {
 				'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE',
@@ -344,6 +343,12 @@ class CARVER_OT_operator(bpy.types.Operator):
 							else:
 								self.Cut()
 								UndoListUpdate(self)
+
+
+#-----------------------------------------------------
+# Object creation
+#-----------------------------------------------------
+
 
 			# Object creation
 			if event.type == self.carver_prefs.Key_Create and event.value == 'PRESS':
@@ -666,45 +671,11 @@ class CARVER_OT_operator(bpy.types.Operator):
 				else:
 					if self.CutMode:
 						if self.alt is False:
-							if self.ctrl and (self.CutType == self.line):
-
-								# get the context arguments
-								region = context.region
-								rv3d = context.region_data
-
-								# Get the grid overlay for the VIEW_3D (areas[4])
-								# Get the VIEW3D area
-								for i, a in enumerate(context.screen.areas):
-									if a.type == 'VIEW_3D':
-										space = context.screen.areas[i].spaces.active
-								grid_scale = space.overlay.grid_scale
-								grid_subdivisions = space.overlay.grid_subdivisions
-
-								# Use the grid scale and subdivision to get the increment
-								increment = (grid_scale / grid_subdivisions)
-								half_increment = increment / 2
-
-								# Convert the 2d location of the mouse in 3d
-								mouse_loc_2d = event.mouse_region_x, event.mouse_region_y
-								mouse_loc_3d = region_2d_to_location_3d(region, rv3d, mouse_loc_2d, (0, 0, 0))
-
-								# Get the remainder from the mouse location and the ratio
-								# Test if the remainder > to the half of the increment
-								for i in range(3):
-									modulo = mouse_loc_3d[i] % increment
-									if modulo < half_increment:
-										modulo = - modulo
-									else:
-										modulo = increment - modulo
-
-									# Add the remainder to get the closest location on the grid
-									mouse_loc_3d[i] = mouse_loc_3d[i] + modulo
-
-								# Get the snapped 2d location
-								snap_loc_2d = location_3d_to_region_2d(region, rv3d, mouse_loc_3d)
-
-								# Replace the the last mouse location by the snapped location
-								self.mouse_path[len(self.mouse_path) - 1] = tuple(snap_loc_2d)
+							if self.ctrl :
+								# Find the closest position on the overlay grid and snap the mouse on it
+								# Draw a mini grid around the cursor
+								mouse_pos = [[event.mouse_region_x, event.mouse_region_y]]
+								Snap_Cursor(self, context, event, mouse_pos)
 
 							else:
 								if len(self.mouse_path) > 0:
@@ -717,6 +688,9 @@ class CARVER_OT_operator(bpy.types.Operator):
 
 							self.last_mouse_region_x = event.mouse_region_x
 							self.last_mouse_region_y = event.mouse_region_y
+
+							# mouse_pos = [[event.mouse_region_x, event.mouse_region_y]]
+							# Snap_Cursor(self, context, event, mouse_pos)
 
 			elif event.type == 'LEFTMOUSE' and event.value == 'PRESS':
 				if self.ObjectMode or self.ProfileMode:
