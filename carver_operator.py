@@ -41,7 +41,6 @@ from .carver_utils import (
 	CreateCutSquare,
 	CreateCutCircle,
 	CreateCutLine,
-	CreatePrimitive,
 	boolean_operation,
 	update_bevel,
 	CreateBevel,
@@ -87,6 +86,8 @@ class CARVER_OT_operator(bpy.types.Operator):
 		self.difference = 0
 		self.union = 1
 
+		self.BoolOps = self.difference
+
 		self.CurrentSelection = context.selected_objects.copy()
 		self.CurrentActive = context.active_object
 		self.all_sel_obj_list = context.selected_objects.copy()
@@ -105,12 +106,9 @@ class CARVER_OT_operator(bpy.types.Operator):
 		self.dont_apply_boolean = context.scene.mesh_carver.DontApply
 		self.Auto_BevelUpdate = True
 
-		self.BoolOps = self.difference
-
 		# Circle variables
 		self.stepAngle = [2, 4, 5, 6, 9, 10, 15, 20, 30, 40, 45, 60, 72, 90]
 		self.step = 4
-		self.step_rotation = 0
 
 		# Primitives Position
 		self.xpos = 0
@@ -129,8 +127,6 @@ class CARVER_OT_operator(bpy.types.Operator):
 		# Working object
 		self.OpsObj = context.active_object
 
-
-
 		# Rebool forced (cut line)
 		self.ForceRebool = False
 
@@ -143,14 +139,12 @@ class CARVER_OT_operator(bpy.types.Operator):
 		self.CarveDepth = False
 		self.BrushDepth = False
 		self.BrushDepthOffset = 0.0
+		self.snap = False
 
 		self.ObjectScale = False
 
 		#Init create circle primitive
-		self.CircleListRaw = []
 		self.CLR_C = []
-		self.CRadius = 1.0
-		CreatePrimitive(self, 10.0, 1.0)
 
 		# Cursor location
 		self.CurLoc = Vector((0.0, 0.0, 0.0))
@@ -186,15 +180,13 @@ class CARVER_OT_operator(bpy.types.Operator):
 		'show_in_front' : False
 		}
 
-
-		# Grid mesh
+		# Array variables
 		self.nbcol = 1
 		self.nbrow = 1
 		self.gapx = 0
 		self.gapy = 0
 		self.scale_x = 1
 		self.scale_y = 1
-
 		self.GridScaleX = False
 		self.GridScaleY = False
 
@@ -223,7 +215,7 @@ class CARVER_OT_operator(bpy.types.Operator):
 					if not region_types or region.type in region_types:
 						region.tag_redraw()
 
-		# Change the increment value using the wheel mouse
+		# Change the snap increment value using the wheel mouse
 		if self.CutMode:
 			if self.alt is False:
 				if self.ctrl and (self.CutType in (self.line, self.rectangle)):
@@ -254,18 +246,19 @@ class CARVER_OT_operator(bpy.types.Operator):
 
 			# [Alt]
 			self.alt = False
+
+			# [Alt] press : Init position variable before moving the cut brush with LMB
 			if event.alt:
 				if self.InitPosition is False:
-					# Initialise position variable for start position
 					self.xpos = 0
 					self.ypos = 0
 					self.last_mouse_region_x = event.mouse_region_x
 					self.last_mouse_region_y = event.mouse_region_y
 					self.InitPosition = True
 				self.alt = True
-			# [Alt] release
+
+			# [Alt] release : update the coordinates
 			if self.InitPosition and self.alt is False:
-				# Update coordinates
 				for i in range(0, len(self.mouse_path)):
 					l = list(self.mouse_path[i])
 					l[0] += self.xpos
@@ -275,10 +268,10 @@ class CARVER_OT_operator(bpy.types.Operator):
 				self.xpos = self.ypos = 0
 				self.InitPosition = False
 
-			# Mode change (cut type)
 			if event.type == 'SPACE' and event.value == 'PRESS':
+				# If object or profile mode is TRUE : Confirm the cut
 				if self.ObjectMode or self.ProfileMode:
-					# If grid, remove double with intersect meshes
+					# If array, remove double with intersect meshes
 					if ((self.nbcol + self.nbrow) > 3):
 						# Go in edit mode mode
 						bpy.ops.object.mode_set(mode='EDIT')
@@ -469,33 +462,37 @@ class CARVER_OT_operator(bpy.types.Operator):
 					self.mouse_region = event.mouse_region_x, event.mouse_region_y
 				self.ObjectScale = True
 
-			# Grid : Add column
-			if event.type == 'UP_ARROW' and event.value == 'PRESS':
-				self.nbcol += 1
-				update_grid(self, context)
+			# Grid : Snap on grid
+			if event.type == self.carver_prefs.Key_Snap and event.value == 'PRESS':
+				self.snap = not self.snap
 
-			# Grid : Add row
-			elif event.type == 'RIGHT_ARROW' and event.value == 'PRESS':
+			# Array : Add column
+			if event.type == 'UP_ARROW' and event.value == 'PRESS':
 				self.nbrow += 1
 				update_grid(self, context)
 
-			# Grid : Delete column
+			# Array : Delete column
 			elif event.type == 'DOWN_ARROW' and event.value == 'PRESS':
-				self.nbcol -= 1
-				update_grid(self, context)
-
-			# Grid : Delete row
-			elif event.type == 'LEFT_ARROW' and event.value == 'PRESS':
 				self.nbrow -= 1
 				update_grid(self, context)
 
-			# Grid : Scale gap between columns
+			# Array : Add row
+			elif event.type == 'RIGHT_ARROW' and event.value == 'PRESS':
+				self.nbcol += 1
+				update_grid(self, context)
+
+			# Array : Delete row
+			elif event.type == 'LEFT_ARROW' and event.value == 'PRESS':
+				self.nbcol -= 1
+				update_grid(self, context)
+
+			# Array : Scale gap between columns
 			if event.type == self.carver_prefs.Key_Gapy and event.value == 'PRESS':
 				if self.GridScaleX is False:
 					self.mouse_region = event.mouse_region_x, event.mouse_region_y
 				self.GridScaleX = True
 
-			# Grid : Scale gap between rows
+			# Array : Scale gap between rows
 			if event.type == self.carver_prefs.Key_Gapx and event.value == 'PRESS':
 				if self.GridScaleY is False:
 					self.mouse_region = event.mouse_region_x, event.mouse_region_y
@@ -689,9 +686,6 @@ class CARVER_OT_operator(bpy.types.Operator):
 							self.last_mouse_region_x = event.mouse_region_x
 							self.last_mouse_region_y = event.mouse_region_y
 
-							# mouse_pos = [[event.mouse_region_x, event.mouse_region_y]]
-							# Snap_Cursor(self, context, event, mouse_pos)
-
 			elif event.type == 'LEFTMOUSE' and event.value == 'PRESS':
 				if self.ObjectMode or self.ProfileMode:
 					if self.LMB is False:
@@ -738,6 +732,7 @@ class CARVER_OT_operator(bpy.types.Operator):
 							Picking(context, event)
 
 						else:
+
 							if self.CutType == self.line:
 								if self.CutMode is False:
 									self.mouse_path.clear()
@@ -770,7 +765,7 @@ class CARVER_OT_operator(bpy.types.Operator):
 								# Apply operation
 								context.scene.mesh_carver.DontApply = self.dont_apply_boolean
 
-								# if Object mode, set intiale state
+								# if Object mode, set initiale state
 								if self.ObjectBrush is not None:
 									self.ObjectBrush.location = self.InitBrush['location']
 									self.ObjectBrush.scale = self.InitBrush['scale']
@@ -801,35 +796,33 @@ class CARVER_OT_operator(bpy.types.Operator):
 							# Line
 							self.mouse_path.append((event.mouse_region_x, event.mouse_region_y))
 
-			# Change circle subdivisions
+			# Change brush profil or circle subdivisions
 			elif (event.type == 'COMMA' and event.value == 'PRESS') or \
 						(event.type == self.carver_prefs.Key_Subrem and event.value == 'PRESS'):
+				# Brush profil
 				if self.ProfileMode:
 					self.nProfil += 1
 					if self.nProfil >= self.MaxProfil:
 						self.nProfil = 0
 					createMeshFromData(self)
-				# Circle rotation
+				# Circle subdivisions
 				if self.CutType == self.circle:
-					if self.ctrl:
-						self.step_rotation += 1
-					else:
-						self.step += 1
-						if self.step >= len(self.stepAngle):
-							self.step = len(self.stepAngle) - 1
+					self.step += 1
+					if self.step >= len(self.stepAngle):
+						self.step = len(self.stepAngle) - 1
+			# Change brush profil or circle subdivisions
 			elif (event.type == 'PERIOD' and event.value == 'PRESS') or \
 						(event.type == self.carver_prefs.Key_Subadd and event.value == 'PRESS'):
+				# Brush profil
 				if self.ProfileMode:
 					self.nProfil -= 1
 					if self.nProfil < 0:
 						self.nProfil = self.MaxProfil - 1
 					createMeshFromData(self)
+				# Circle subdivisions
 				if self.CutType == self.circle:
-					if self.ctrl:
-						self.step_rotation -= 1
-					else:
-						if self.step > 0:
-							self.step -= 1
+					if self.step > 0:
+						self.step -= 1
 			# Quit
 			elif event.type in {'RIGHTMOUSE', 'ESC'}:
 				# Depth Cursor
@@ -1155,8 +1148,8 @@ class CARVER_OT_operator(bpy.types.Operator):
 				selected_obj_list = self.CurrentSelection
 				self.CurrentObj = self.ProfileBrush
 
-		for o in self.CurrentSelection:
-			UndoAdd(self, "MESH", o)
+		for obj in self.CurrentSelection:
+			UndoAdd(self, "MESH", obj)
 
 		# List objects create with rebool
 		lastSelected = []
@@ -1166,13 +1159,6 @@ class CARVER_OT_operator(bpy.types.Operator):
 
 			if len(context.selected_objects) > 0:
 				bpy.ops.object.select_all(action='TOGGLE')
-
-			# Test if initial object has bevel
-			BevelAO = False
-			for obj in selected_obj_list:
-				for mb in obj.modifiers:
-					if mb.type == 'BEVEL':
-						BevelAO = True
 
 			# Select cut object
 			bpy.data.objects[self.CurrentObj.name].select_set(True)
@@ -1231,8 +1217,8 @@ class CARVER_OT_operator(bpy.types.Operator):
 					rebool_RT = context.selected_objects[0]
 					if len(rebool_RT.data.vertices) > 0:
 						# Create Bevel for new objects
-						if BevelAO:
-							CreateBevel(context, context.selected_objects[0])
+						CreateBevel(context, context.selected_objects[0])
+
 						UndoAdd(self, "REBOOL", context.selected_objects[0])
 
 						context.scene.cursor.location = ActiveObj.location

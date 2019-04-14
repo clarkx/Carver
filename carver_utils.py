@@ -17,6 +17,12 @@ from mathutils.geometry import (
 	intersect_line_plane,
 )
 
+from math import (
+	sin,
+	cos,
+	pi,
+	)
+
 import bpy_extras
 
 from bpy_extras import view3d_utils
@@ -28,44 +34,44 @@ from bpy_extras.view3d_utils import (
 
 # Cut Square
 def CreateCutSquare(self, context):
+	""" Create a rectangle mesh """
 	far_limit = 10000.0
+	faces=[]
+
+	# Get the mouse coordinates
+	coord = self.mouse_path[0][0], self.mouse_path[0][1]
+
 	# New mesh
 	me = bpy.data.meshes.new('CMT_Square')
-	# New object
+	bm = bmesh.new()
+	bm.from_mesh(me)
+
+	# New object and link it to the scene
 	ob = bpy.data.objects.new('CMT_Square', me)
-	# Save new object
 	self.CurrentObj = ob
+	context.collection.objects.link(ob)
 
 	# Scene information
 	region = context.region
 	rv3d = context.region_data
-	coord = self.mouse_path[0][0], self.mouse_path[0][1]
-
 	depth_location = region_2d_to_vector_3d(region, rv3d, coord)
 	self.ViewVector = depth_location
+
+	# Get a point on a infinite plane and its direction
+	plane_normal = depth_location
+	plane_direction = plane_normal.normalized()
 
 	if self.snapCursor:
 		plane_point = context.scene.cursor.location
 	else:
 		plane_point = self.OpsObj.location if self.OpsObj is not None else Vector((0.0, 0.0, 0.0))
 
-	plane_normal = depth_location
-	plane_normalised = plane_normal.normalized()
-
-	# Link object to scene
-	context.collection.objects.link(ob)
-
-	# New bmesh
-	bm = bmesh.new()
-	bm.from_mesh(me)
-
-	# Convert in 3d space
-	faces=[]
+	# Find the intersection of a line going thru each vertex and the infinite plane
 	for v_co in self.rectangle_coord:
 		vec = region_2d_to_vector_3d(region, rv3d, v_co)
 		p0 = region_2d_to_location_3d(region, rv3d,v_co, vec)
-		p1 = region_2d_to_location_3d(region, rv3d,v_co, vec) + plane_normalised * far_limit
-		faces.append(bm.verts.new(intersect_line_plane(p0, p1, plane_point, plane_normalised)))
+		p1 = region_2d_to_location_3d(region, rv3d,v_co, vec) + plane_direction * far_limit
+		faces.append(bm.verts.new(intersect_line_plane(p0, p1, plane_point, plane_direction)))
 
 	# Update vertices index
 	bm.verts.index_update()
@@ -77,45 +83,47 @@ def CreateCutSquare(self, context):
 
 # Cut Line
 def CreateCutLine(self, context):
+	""" Create a polygon mesh """
 	far_limit = 10000.0
+	vertices = []
+	faces = []
+	loc = []
+
+	# Get the mouse coordinates
+	coord = self.mouse_path[0][0], self.mouse_path[0][1]
+
 	# New mesh
 	me = bpy.data.meshes.new('CMT_Line')
-	# New object
+	bm = bmesh.new()
+	bm.from_mesh(me)
+
+	# New object and link it to the scene
 	ob = bpy.data.objects.new('CMT_Line', me)
-	# Save new object
 	self.CurrentObj = ob
+	context.collection.objects.link(ob)
+
 	# Scene information
 	region = context.region
 	rv3d = context.region_data
-	coord = self.mouse_path[0][0], self.mouse_path[0][1]
-
 	depth_location = region_2d_to_vector_3d(region, rv3d, coord)
 	self.ViewVector = depth_location
+
+	# Get a point on a infinite plane and its direction
+	plane_normal = depth_location
+	plane_direction = plane_normal.normalized()
 
 	if self.snapCursor:
 		plane_point = context.scene.cursor.location
 	else:
 		plane_point = self.OpsObj.location if self.OpsObj is not None else Vector((0.0, 0.0, 0.0))
 
-	plane_normal = depth_location
-	plane_normalised = plane_normal.normalized()
-
-	# Link object to scene
-	context.collection.objects.link(ob)
-
-	bm = bmesh.new()
-	bm.from_mesh(me)
-
-	vertices = []
-	faces = []
-	loc = []
-
 	# Use dict to remove doubles
+	# Find the intersection of a line going thru each vertex and the infinite plane
 	for idx, v_co in enumerate(list(dict.fromkeys(self.mouse_path))):
 		vec = region_2d_to_vector_3d(region, rv3d, v_co)
 		p0 = region_2d_to_location_3d(region, rv3d,v_co, vec)
-		p1 = region_2d_to_location_3d(region, rv3d,v_co, vec) + plane_normalised * far_limit
-		loc.append(intersect_line_plane(p0, p1, plane_point, plane_normalised))
+		p1 = region_2d_to_location_3d(region, rv3d,v_co, vec) + plane_direction * far_limit
+		loc.append(intersect_line_plane(p0, p1, plane_point, plane_direction))
 		vertices.append(bm.verts.new(loc[idx]))
 
 		if idx > 0:
@@ -126,135 +134,107 @@ def CreateCutLine(self, context):
 	# Update vertices index
 	bm.verts.index_update()
 
-	# Nothing is selected, create geometry
+	# Nothing is selected, create close geometry
 	if self.CreateMode:
 		if self.Closed and len(vertices) > 1:
 			bm.edges.new([vertices[-1], vertices[0]])
 			bm.faces.new(faces)
 	else:
-		# Only if more than 2 vertices
+		# Create faces if more than 2 vertices
 		if len(vertices) > 1 :
 			bm.edges.new([vertices[-1], vertices[0]])
 			bm.faces.new(faces)
 
 	bm.to_mesh(me)
 
-def draw_circle(self, x0, y0):
-	iner_verts = []
-	outer_verts = []
-	indices = []
-	segments = int(360 / self.stepAngle[self.step])
-	radius = self.mouse_path[1][0] - self.mouse_path[0][0]
-	DEG2RAD = 3.14159 / (180.0 / self.stepAngle[self.step])
-	if self.ctrl:
-		self.stepR = (self.mouse_path[1][1] - self.mouse_path[0][1]) / 25
-		shift = (3.14159 / (360.0 / 60.0)) * int(self.stepR)
-	else:
-		shift = (self.mouse_path[1][1] - self.mouse_path[0][1]) / 50
-
-	iner_verts.append(Vector((x0 + self.xpos , y0 + self.ypos)))
-
-	for i in range(0, segments):
-		degInRad = i * DEG2RAD
-		iner_verts.append(Vector((x0 + self.xpos + math.cos(degInRad + shift) * radius,\
-					   y0 + self.ypos + math.sin(degInRad + shift) * radius)))
-
-		i1 = i+1
-		i2 = i+2 if i+2 <= segments else 1
-		indices.append((0,i1,i2))
-		outer_verts.append(Vector((x0 + self.xpos + math.cos(degInRad + shift) * radius,\
-					   y0 + self.ypos + math.sin(degInRad + shift) * radius)))
-
-	outer_verts.append(Vector((x0 + self.xpos + math.cos(0 + shift) * radius,\
-				   y0 + self.ypos + math.sin(0 + shift) * radius)))
-
-	return(iner_verts, outer_verts, indices)
-
-def draw_shader(self, color, alpha, type, coords, size=1, indices=None):
-	bgl.glEnable(bgl.GL_BLEND)
-	bgl.glEnable(bgl.GL_LINE_SMOOTH)
-	if type =='POINTS':
-		bgl.glPointSize(size)
-	else:
-		bgl.glLineWidth(size)
-	try:
-		if len(coords[0])>2:
-			shader = gpu.shader.from_builtin('3D_UNIFORM_COLOR')
-		else:
-			shader = gpu.shader.from_builtin('2D_UNIFORM_COLOR')
-		batch = batch_for_shader(shader, type, {"pos": coords}, indices=indices)
-		shader.bind()
-		shader.uniform_float("color", (color[0], color[1], color[2], alpha))
-		batch.draw(shader)
-		bgl.glLineWidth(1)
-		bgl.glPointSize(1)
-		bgl.glDisable(bgl.GL_LINE_SMOOTH)
-		bgl.glDisable(bgl.GL_BLEND)
-	except:
-		exc_type, exc_value, exc_traceback = sys.exc_info()
-		self.report({'ERROR'}, str(exc_value))
-
-
 # Cut Circle
 def CreateCutCircle(self, context):
+	""" Create a circle mesh """
 	far_limit = 10000.0
+	FacesList = []
 
-	me = bpy.data.meshes.new('CMT_Circle')
+	# Get the mouse coordinates
+	mouse_pos_x = self.mouse_path[0][0]
+	mouse_pos_y = self.mouse_path[0][1]
+	coord = self.mouse_path[0][0], self.mouse_path[0][1]
 
-	ob = bpy.data.objects.new('CMT_Circle', me)
-	self.CurrentObj = ob
-
+	# Scene information
 	region = context.region
 	rv3d = context.region_data
-	coord = self.mouse_path[0][0], self.mouse_path[0][1]
 	depth_location = region_2d_to_vector_3d(region, rv3d, coord)
 	self.ViewVector = depth_location
 
+	# Get a point on a infinite plane and its direction
 	plane_point = context.scene.cursor.location if self.snapCursor else Vector((0.0, 0.0, 0.0))
 	plane_normal = depth_location
-	plane_normalised = plane_normal.normalized()
+	plane_direction = plane_normal.normalized()
 
-	context.collection.objects.link(ob)
-
+	# New mesh
+	me = bpy.data.meshes.new('CMT_Circle')
 	bm = bmesh.new()
 	bm.from_mesh(me)
 
-	x0 = self.mouse_path[0][0]
-	y0 = self.mouse_path[0][1]
+	# New object and link it to the scene
+	ob = bpy.data.objects.new('CMT_Circle', me)
+	self.CurrentObj = ob
+	context.collection.objects.link(ob)
 
-	v0 = Vector((self.mouse_path[0][0], self.mouse_path[0][1], 0))
-	v1 = Vector((self.mouse_path[1][0], self.mouse_path[1][1], 0))
-	v0 -= v1
-	radius = self.mouse_path[1][0] - self.mouse_path[0][0]
-	DEG2RAD = math.pi / (180.0 / self.stepAngle[self.step])
-	if self.ctrl:
-		self.step_rotation = (self.mouse_path[1][1] - self.mouse_path[0][1]) / 25
-		shift = (math.pi / (360.0 / self.stepAngle[self.step])) * (self.step_rotation)
-	else:
-		shift = (self.mouse_path[1][1] - self.mouse_path[0][1]) / 50
+	# Create a circle using a tri fan
+	tris_fan, indices = draw_circle(self, mouse_pos_x, mouse_pos_y)
 
-	# Convert point in 3D Space
-	FacesList = []
-	for i in range(0, int(360.0 / self.stepAngle[self.step])):
-		degInRad = i * DEG2RAD
-		v0 = x0 + self.xpos + math.cos(degInRad + shift) * radius, \
-			 y0 + self.ypos + math.sin(degInRad + shift) * radius
-		vec = region_2d_to_vector_3d(region, rv3d, v0)
-		loc0 = region_2d_to_location_3d(region, rv3d, v0, vec)
+	# Remove the vertex in the center to get the outer line of the circle
+	verts = tris_fan[1:]
 
-		p0 = loc0
-		p1 = loc0 + plane_normalised * far_limit
-		loc0 = intersect_line_plane(p0, p1, plane_point, plane_normalised)
-
+	# Find the intersection of a line going thru each vertex and the infinite plane
+	for vert in verts:
+		vec = region_2d_to_vector_3d(region, rv3d, vert)
+		p0 = region_2d_to_location_3d(region, rv3d, vert, vec)
+		p1 = p0 + plane_direction * far_limit
+		loc0 = intersect_line_plane(p0, p1, plane_point, plane_direction)
 		t_v0 = bm.verts.new(loc0)
-
 		FacesList.append(t_v0)
 
 	bm.verts.index_update()
-	t_face = bm.faces.new(FacesList)
-
+	bm.faces.new(FacesList)
 	bm.to_mesh(me)
 
+
+def create_2d_circle(self, step, radius, rotation = 0):
+	""" Create the vertices of a 2d circle at (0,0) """
+	verts = []
+	for angle in range(0, 360, step):
+		verts.append(math.cos(math.radians(angle + rotation)) * radius)
+		verts.append(math.sin(math.radians(angle + rotation)) * radius)
+		verts.append(0.0)
+	verts.append(math.cos(math.radians(0.0 + rotation)) * radius)
+	verts.append(math.sin(math.radians(0.0 + rotation)) * radius)
+	verts.append(0.0)
+	return(verts)
+
+
+def draw_circle(self, mouse_pos_x, mouse_pos_y):
+	""" Return the coordinates + indices of a circle using a triangle fan """
+	tris_verts = []
+	indices = []
+	segments = int(360 / self.stepAngle[self.step])
+	radius = self.mouse_path[1][0] - self.mouse_path[0][0]
+	rotation = (self.mouse_path[1][1] - self.mouse_path[0][1]) / 2
+
+	# Get the vertices of a 2d circle
+	verts = create_2d_circle(self, self.stepAngle[self.step], radius, rotation)
+
+	# Create the first vertex at mouse position for the center of the circle
+	tris_verts.append(Vector((mouse_pos_x + self.xpos , mouse_pos_y + self.ypos)))
+
+	# For each vertex of the circle, add the mouse position and the translation
+	for idx in range(int(len(verts) / 3) - 1):
+		tris_verts.append(Vector((verts[idx * 3] + mouse_pos_x + self.xpos, \
+								  verts[idx * 3 + 1] + mouse_pos_y + self.ypos)))
+		i1 = idx+1
+		i2 = idx+2 if idx+2 <= segments else 1
+		indices.append((0,i1,i2))
+
+	return(tris_verts, indices)
 
 # Object dimensions (SCULPT Tools tips)
 def objDiagonal(obj):
@@ -273,68 +253,16 @@ def update_bevel(context):
 			context.view_layer.objects.active = obj
 
 			# Test object name
+			# Subdive mode : Only bevel weight
 			if obj.data.name.startswith("S_") or obj.data.name.startswith("S "):
 				bpy.ops.object.mode_set(mode='EDIT')
 				bpy.ops.mesh.region_to_loop()
 				bpy.ops.transform.edge_bevelweight(value=1)
 				bpy.ops.object.mode_set(mode='OBJECT')
+
 			else:
-				act_bevel = False
-				for mod in obj.modifiers:
-					if mod.type == 'BEVEL':
-						act_bevel = True
-				if act_bevel:
-					context.view_layer.objects.active = bpy.data.objects[obj.name]
-					active = obj
-
-					bpy.ops.object.mode_set(mode='EDIT')
-
-					# Edge mode
-					bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
-
-					# Clear all
-					bpy.ops.mesh.select_all(action='SELECT')
-					bpy.ops.mesh.mark_sharp(clear=True)
-					bpy.ops.transform.edge_crease(value=-1)
-
-					bpy.ops.transform.edge_bevelweight(value=-1)
-					bpy.ops.mesh.select_all(action='DESELECT')
-					bpy.ops.mesh.edges_select_sharp(sharpness=0.523599)
-					bpy.ops.mesh.mark_sharp()
-					bpy.ops.transform.edge_crease(value=1)
-					bpy.ops.mesh.select_all(action='DESELECT')
-					bpy.ops.mesh.edges_select_sharp(sharpness=0.523599)
-					bpy.ops.transform.edge_bevelweight(value=1)
-					bpy.ops.mesh.select_all(action='DESELECT')
-
-					bpy.ops.object.mode_set(mode="OBJECT")
-
-					active.data.use_customdata_edge_bevel = True
-
-					for i in range(len(active.data.edges)):
-						if active.data.edges[i].select is True:
-							active.data.edges[i].bevel_weight = 1.0
-							active.data.edges[i].use_edge_sharp = True
-
-					Already = False
-					for modifier in active.modifiers:
-						if modifier.name == 'Bevel':
-							Already = True
-
-					if Already is False:
-						bpy.ops.object.modifier_add(type='BEVEL')
-						mod = context.object.modifiers[-1]
-						mod.limit_method = 'WEIGHT'
-						mod.width = 0.01
-						mod.profile = 0.699099
-						mod.use_clight_overlap = False
-						mod.segments = 3
-						mod.loop_slide = False
-
-					bpy.ops.object.shade_smooth()
-
-					context.object.data.use_auto_smooth = True
-					context.object.data.auto_smooth_angle = 1.0472
+				# No subdiv mode : bevel weight + Crease + Sharp
+				CreateBevel(context, obj)
 
 	bpy.ops.object.select_all(action='DESELECT')
 
@@ -347,84 +275,84 @@ def CreateBevel(context, CurrentObject):
 	# Save active object
 	SavActive = context.active_object
 
-	# Active "CurrentObject"
-	context.view_layer.objects.active = CurrentObject
+	# Test if initial object has bevel
+	bevel_modifier = False
+	for modifier in SavActive.modifiers:
+		if modifier.name == 'Bevel':
+			bevel_modifier = True
 
-	bpy.ops.object.mode_set(mode='EDIT')
+	if bevel_modifier:
+		# Active "CurrentObject"
+		context.view_layer.objects.active = CurrentObject
 
-	# Edge mode
-	bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
-	# Clear all
-	bpy.ops.mesh.select_all(action='SELECT')
-	bpy.ops.mesh.mark_sharp(clear=True)
-	bpy.ops.transform.edge_crease(value=-1)
+		bpy.ops.object.mode_set(mode='EDIT')
 
-	bpy.ops.transform.edge_bevelweight(value=-1)
-	bpy.ops.mesh.select_all(action='DESELECT')
-	bpy.ops.mesh.edges_select_sharp(sharpness=0.523599)
-	bpy.ops.mesh.mark_sharp()
-	bpy.ops.transform.edge_crease(value=1)
-	bpy.ops.mesh.select_all(action='DESELECT')
-	bpy.ops.mesh.edges_select_sharp(sharpness=0.523599)
-	bpy.ops.transform.edge_bevelweight(value=1)
-	bpy.ops.mesh.select_all(action='DESELECT')
+		# Edge mode
+		bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
+		# Clear all
+		bpy.ops.mesh.select_all(action='SELECT')
+		bpy.ops.mesh.mark_sharp(clear=True)
+		bpy.ops.transform.edge_crease(value=-1)
+		bpy.ops.transform.edge_bevelweight(value=-1)
 
-	bpy.ops.object.mode_set(mode="OBJECT")
+		bpy.ops.mesh.select_all(action='DESELECT')
 
-	bpy.ops.object.mode_set(mode='OBJECT')
+		# Select (in radians) all 30° sharp edges
+		bpy.ops.mesh.edges_select_sharp(sharpness=0.523599)
+		# Apply bevel weight + Crease + Sharp to the selected edges
+		bpy.ops.mesh.mark_sharp()
+		bpy.ops.transform.edge_crease(value=1)
+		bpy.ops.transform.edge_bevelweight(value=1)
 
-	Already = False
-	for m in CurrentObject.modifiers:
-		if m.name == 'Bevel':
-			Already = True
+		bpy.ops.mesh.select_all(action='DESELECT')
 
-	if Already is False:
-		bpy.ops.object.modifier_add(type='BEVEL')
-		mod = context.object.modifiers[-1]
-		mod.limit_method = 'WEIGHT'
-		mod.width = 0.01
-		mod.profile = 0.699099
-		mod.use_clight_overlap = False
-		mod.segments = 3
-		mod.loop_slide = False
+		bpy.ops.object.mode_set(mode='OBJECT')
 
-	bpy.ops.object.shade_smooth()
+		CurrentObject.data.use_customdata_edge_bevel = True
 
-	context.object.data.use_auto_smooth = True
-	context.object.data.auto_smooth_angle = 1.0471975
+		for i in range(len(CurrentObject.data.edges)):
+			if CurrentObject.data.edges[i].select is True:
+				CurrentObject.data.edges[i].bevel_weight = 1.0
+				CurrentObject.data.edges[i].use_edge_sharp = True
 
-	# Restore the active object
-	context.view_layer.objects.active = SavActive
+		bevel_modifier = False
+		for m in CurrentObject.modifiers:
+			if m.name == 'Bevel':
+				bevel_modifier = True
 
-def CreatePrimitive(self, _AngleStep, _radius):
-	Angle = 0.0
-	self.NbPointsInPrimitive = 0
-	while(Angle < 360.0):
-		self.CircleListRaw.append(math.cos(math.radians(Angle)) * _radius)
-		self.CircleListRaw.append(math.sin(math.radians(Angle)) * _radius)
-		self.CircleListRaw.append(0.0)
-		Angle += _AngleStep
-		self.NbPointsInPrimitive += 1
-	self.CircleListRaw.append(math.cos(math.radians(0.0)) * _radius)
-	self.CircleListRaw.append(math.sin(math.radians(0.0)) * _radius)
-	self.CircleListRaw.append(0.0)
-	self.NbPointsInPrimitive += 1
+		if bevel_modifier is False:
+			bpy.ops.object.modifier_add(type='BEVEL')
+			mod = context.object.modifiers[-1]
+			mod.limit_method = 'WEIGHT'
+			mod.width = 0.01
+			mod.profile = 0.699099
+			mod.use_clight_overlap = False
+			mod.segments = 3
+			mod.loop_slide = False
+
+		bpy.ops.object.shade_smooth()
+
+		context.object.data.use_auto_smooth = True
+		context.object.data.auto_smooth_angle = 1.0471975
+
+		# Restore the active object
+		context.view_layer.objects.active = SavActive
 
 
 def MoveCursor(qRot, location, self):
+	""" In brush mode : Draw a circle around the brush """
 	if qRot is not None:
+		verts = create_2d_circle(self, 10, 1)
 		self.CLR_C.clear()
 		vc = Vector()
-		idx = 0
-		for i in range(int(len(self.CircleListRaw) / 3)):
-			vc.x = self.CircleListRaw[idx * 3] * self.CRadius
-			vc.y = self.CircleListRaw[idx * 3 + 1] * self.CRadius
-			vc.z = self.CircleListRaw[idx * 3 + 2] * self.CRadius
+		for idx in range(int(len(verts) / 3)):
+			vc.x = verts[idx * 3]
+			vc.y = verts[idx * 3 + 1]
+			vc.z = verts[idx * 3 + 2]
 			vc = qRot @ vc
 			self.CLR_C.append(vc.x)
 			self.CLR_C.append(vc.y)
 			self.CLR_C.append(vc.z)
-			idx += 1
 
 
 def rot_axis_quat(vector1, vector2):
@@ -567,18 +495,17 @@ def printUndo(self):
 		print(l)
 
 
-def UndoAdd(self, type, OpsObj):
-	if OpsObj is None:
+def UndoAdd(self, type, obj):
+	""" Create a backup mesh before apply the action to the object """
+	if obj is None:
 		return
-	if type != "DUPLICATE":
-		ob = OpsObj
-		# Create the 'backup' mesh
-		bm = bmesh.new()
-		bm.from_mesh(ob.data)
 
-		self.UndoOps.append((OpsObj, type, bm))
+	if type != "DUPLICATE":
+		bm = bmesh.new()
+		bm.from_mesh(obj.data)
+		self.UndoOps.append((obj, type, bm))
 	else:
-		self.UndoOps.append((OpsObj, type, None))
+		self.UndoOps.append((obj, type, None))
 
 
 def UndoListUpdate(self):
@@ -891,7 +818,6 @@ def Selection_Restore(self):
 
 def Snap_Cursor(self, context, event, mouse_pos):
 	""" Find the closest position on the overlay grid and snap the mouse on it """
-
 	# Get the context arguments
 	region = context.region
 	rv3d = context.region_data
@@ -929,10 +855,11 @@ def Snap_Cursor(self, context, event, mouse_pos):
 		snap_loc_2d = location_3d_to_region_2d(region, rv3d, mouse_loc_3d)
 
 		# Replace the last mouse location by the snapped location
-		self.mouse_path[len(self.mouse_path) - (index + 1) ] = tuple(snap_loc_2d)
+		if len(self.mouse_path) > 0:
+			self.mouse_path[len(self.mouse_path) - (index + 1) ] = tuple(snap_loc_2d)
 
-def Mini_Grid(self, context, color):
-	""" Draw a mini grid around the cursor """
+def mini_grid(self, context, color):
+	""" Draw a snap mini grid around the cursor based on the overlay grid"""
 	# Get the context arguments
 	region = context.region
 	rv3d = context.region_data
@@ -945,13 +872,14 @@ def Mini_Grid(self, context, color):
 			screen_width = context.screen.areas[i].width
 
 	#Draw the snap grid, only in ortho view
-	if not space.region_3d.is_perspective:
+	if not space.region_3d.is_perspective :
 		grid_scale = space.overlay.grid_scale
 		grid_subdivisions = space.overlay.grid_subdivisions
 		increment = (grid_scale / grid_subdivisions)
 
 		# Get the 3d location of the mouse forced to a snap value in the operator
 		mouse_coord = self.mouse_path[len(self.mouse_path) - 1]
+
 		snap_loc = region_2d_to_location_3d(region, rv3d, mouse_coord, (0, 0, 0))
 
 		# Add the increment to get the closest location on the grid
@@ -985,3 +913,29 @@ def Mini_Grid(self, context, color):
 		(mouse_coord[0] - 25 - snap_value, mouse_coord[1] - snap_value),
 		]
 		draw_shader(self, color, 0.3, 'LINES', grid_coords, size=2)
+
+
+def draw_shader(self, color, alpha, type, coords, size=1, indices=None):
+	""" Create a batch for a draw type """
+	bgl.glEnable(bgl.GL_BLEND)
+	bgl.glEnable(bgl.GL_LINE_SMOOTH)
+	if type =='POINTS':
+		bgl.glPointSize(size)
+	else:
+		bgl.glLineWidth(size)
+	try:
+		if len(coords[0])>2:
+			shader = gpu.shader.from_builtin('3D_UNIFORM_COLOR')
+		else:
+			shader = gpu.shader.from_builtin('2D_UNIFORM_COLOR')
+		batch = batch_for_shader(shader, type, {"pos": coords}, indices=indices)
+		shader.bind()
+		shader.uniform_float("color", (color[0], color[1], color[2], alpha))
+		batch.draw(shader)
+		bgl.glLineWidth(1)
+		bgl.glPointSize(1)
+		bgl.glDisable(bgl.GL_LINE_SMOOTH)
+		bgl.glDisable(bgl.GL_BLEND)
+	except:
+		exc_type, exc_value, exc_traceback = sys.exc_info()
+		self.report({'ERROR'}, str(exc_value))

@@ -188,7 +188,12 @@ class CarverPreferences(AddonPreferences):
 		description="Thickness of the drawing lines",
 		default=1,
 	)
-
+	Key_Snap: StringProperty(
+		name="Grid Snap",
+		description="Grid Snap",
+		maxlen=1,
+		default="G",
+	)
 
 	def draw(self, context):
 		scene = context.scene
@@ -258,6 +263,10 @@ class CarverPreferences(AddonPreferences):
 			col.label(text="Subdiv Remove:")
 			col.prop(self, "Key_Subrem", text="")
 
+			box = split.box()
+			col = box.column(align=True)
+			col.label(text="Grid Snap:")
+			col.prop(self, "Key_Snap", text="")
 
 addon_keymaps = []
 

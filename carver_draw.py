@@ -21,7 +21,7 @@ from .carver_utils import (
 	draw_circle,
 	draw_shader,
 	objDiagonal,
-	Mini_Grid,
+	mini_grid,
 	)
 
 from mathutils import (
@@ -63,7 +63,7 @@ def draw_string(self, color1, color2, left, bottom, text, max_option, divide = 1
 	line_height = (blf.dimensions(font_id, "gM")[1] * 1.45)
 	y_offset = 5
 
-	# Test if the text is formated like : ('option', 'key')
+	# Test if the text is a list formated like : ('option', 'key')
 	if isinstance(text,list):
 		for string in text:
 			blf.position(font_id, (left), (bottom + y_offset), 0)
@@ -84,7 +84,7 @@ def draw_string(self, color1, color2, left, bottom, text, max_option, divide = 1
 
 	blf.disable(font_id,blf.SHADOW)
 
-# Opengl draws
+# Opengl draw on screen
 def draw_callback_px(self, context):
 	font_id = 0
 	region = context.region
@@ -134,19 +134,19 @@ def draw_callback_px(self, context):
 	# Help Display
 	if (self.ObjectMode is False) and (self.ProfileMode is False):
 
-		#Depth Cursor
+		# Depth Cursor
 		TypeStr = "Cursor Depth [" + self.carver_prefs.Key_Depth + "]"
 		BoolStr = "(ON)" if self.snapCursor else "(OFF)"
 		help_txt = [[TypeStr, BoolStr]]
 
-		#Close poygonal shape
+		# Close poygonal shape
 		if self.CreateMode and self.CutType == LINE:
 			TypeStr = "Close [" + self.carver_prefs.Key_Close + "]"
 			BoolStr = "(ON)" if self.Closed else "(OFF)"
 			help_txt += [[TypeStr, BoolStr]]
 
 		if self.CreateMode is False:
-			#Apply Booleans
+			# Apply Booleans
 			TypeStr = "Apply Operations [" + self.carver_prefs.Key_Apply + "]"
 			BoolStr = "(OFF)" if self.dont_apply_boolean else "(ON)"
 			help_txt += [[TypeStr, BoolStr]]
@@ -156,7 +156,7 @@ def draw_callback_px(self, context):
 			BoolStr = "(ON)" if self.Auto_BevelUpdate else "(OFF)"
 			help_txt += [[TypeStr, BoolStr]]
 
-		#Circle subdivisions
+		# Circle subdivisions
 		if self.CutType == CIRCLE:
 			TypeStr = "Subdivisions [" + self.carver_prefs.Key_Subrem + "][" + self.carver_prefs.Key_Subadd + "]"
 			BoolStr = str((int(360 / self.stepAngle[self.step])))
@@ -168,18 +168,18 @@ def draw_callback_px(self, context):
 			help_txt += [["Cut Type [Space]", PrimitiveType]]
 
 	else:
-		#Instantiate
+		# Instantiate
 		TypeStr = "Instantiate [" + self.carver_prefs.Key_Instant + "]"
 		BoolStr = "(ON)" if self.Instantiate else "(OFF)"
 		help_txt = [[TypeStr, BoolStr]]
 
-		#Random rotation
+		# Random rotation
 		if self.alt:
 			TypeStr = "Random Rotation [" + self.carver_prefs.Key_Randrot + "]"
 			BoolStr = "(ON)" if self.RandomRotation else "(OFF)"
 			help_txt += [[TypeStr, BoolStr]]
 
-		#Thickness
+		# Thickness
 		if self.BrushSolidify:
 			TypeStr = "Thickness [" + self.carver_prefs.Key_Depth + "]"
 			if self.ProfileMode:
@@ -188,7 +188,7 @@ def draw_callback_px(self, context):
 				BoolStr = str(round(self.ObjectBrush.modifiers["CT_SOLIDIFY"].thickness, 2))
 			help_txt += [[TypeStr, BoolStr]]
 
-		#Brush depth
+		# Brush depth
 		if (self.ObjectMode):
 			TypeStr = "Carve Depth [" + self.carver_prefs.Key_Depth + "]"
 			BoolStr = str(round(self.ObjectBrush.data.vertices[0].co.z, 2))
@@ -384,8 +384,8 @@ def draw_callback_px(self, context):
 
 			# Draw grid (based on the overlay options) to show the incremental snapping
 			if self.ctrl:
-				Mini_Grid(self, context, UIColor)
-				
+				mini_grid(self, context, UIColor)
+
 		# Cut Line
 		elif self.CutType == LINE:
 			coords = []
@@ -411,25 +411,19 @@ def draw_callback_px(self, context):
 
 			# Draw grid (based on the overlay options) to show the incremental snapping
 			if self.ctrl:
-				Mini_Grid(self, context, UIColor)
+				mini_grid(self, context, UIColor)
 
 		# Circle Cut
 		elif self.CutType == CIRCLE:
-			radius = self.mouse_path[1][0] - self.mouse_path[0][0]
-			steps = int(360 / self.stepAngle[self.step])
-			DEG2RAD = 3.14159 / (180.0 / self.stepAngle[self.step])
+			# Create a circle using a tri fan
+			tris_coords, indices = draw_circle(self, x0, y0)
 
-			if self.ctrl:
-				self.step_rotation = (self.mouse_path[1][1] - self.mouse_path[0][1]) / 25
-				rotate_circle = (3.14159 / (360.0 / 60.0)) * int(self.step_rotation)
-			else:
-				rotate_circle = (self.mouse_path[1][1] - self.mouse_path[0][1]) / 50
-
-			circle_coords, line_coords, indices = draw_circle(self, x0, y0)
+			# Remove the vertex in the center to get the outer line of the circle
+			line_coords = tris_coords[1:]
 			draw_shader(self, UIColor, 1.0, 'LINE_LOOP', line_coords, size=self.carver_prefs.LineWidth)
 
 			if self.shift or self.CreateMode:
-				draw_shader(self, UIColor, 0.5, 'TRIS', circle_coords, size=self.carver_prefs.LineWidth, indices=indices)
+				draw_shader(self, UIColor, 0.5, 'TRIS', tris_coords, size=self.carver_prefs.LineWidth, indices=indices)
 
 	if (self.ObjectMode or self.ProfileMode) and len(self.CurrentSelection) > 0:
 		if self.ShowCursor:
@@ -459,8 +453,9 @@ def draw_callback_px(self, context):
 			idx = 0
 			CRadius = ((bbox[7] - bbox[0]).length) / 2
 			for i in range(int(len(self.CLR_C) / 3)):
-				vector3d = (self.CLR_C[idx * 3] * CRadius + self.CurLoc.x, self.CLR_C[idx * 3 + 1] *
-							CRadius + self.CurLoc.y, self.CLR_C[idx * 3 + 2] * CRadius + self.CurLoc.z)
+				vector3d = (self.CLR_C[idx * 3] * CRadius + self.CurLoc.x, \
+							self.CLR_C[idx * 3 + 1] * CRadius + self.CurLoc.y, \
+							self.CLR_C[idx * 3 + 2] * CRadius + self.CurLoc.z)
 				vector2d = bpy_extras.view3d_utils.location_3d_to_region_2d(region, rv3d, vector3d)
 				if vector2d is not None:
 					line_coords.append((vector2d[0], vector2d[1]))
