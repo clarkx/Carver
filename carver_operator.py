@@ -1010,9 +1010,13 @@ class CARVER_OT_operator(bpy.types.Operator):
 	def check_region(self,context,event):
 		if context.area != None:
 			if context.area.type == "VIEW_3D" :
-				t_panel = context.area.regions[1]
-				n_panel = context.area.regions[2]
-				view_3d_region_x = Vector((context.area.x + t_panel.width, context.area.x + context.area.width - n_panel.width))
+				for region in context.area.regions:
+					if region.type == "TOOLS":
+						t_panel = region
+					elif region.type == "UI":
+						ui_panel = region
+
+				view_3d_region_x = Vector((context.area.x + t_panel.width, context.area.x + context.area.width - ui_panel.width))
 				view_3d_region_y = Vector((context.region.y, context.region.y+context.region.height))
 
 				if (event.mouse_x > view_3d_region_x[0] and event.mouse_x < view_3d_region_x[1] \
